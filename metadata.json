@@ -1,0 +1,6 @@
+{
+  "name": "Chats",
+  "description": "A single-screen WhatsApp dark-themed Chats empty-state UI featuring custom vector illustration and Lucide icons.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

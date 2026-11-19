@@ -1,0 +1,110 @@
+<resources>
+    <string name="app_name">Chats</string>
+    <string name="title_chats">Chats</string>
+    <string name="cd_camera_action">Open camera or media</string>
+    <string name="cd_new_chat_action">New chat</string>
+    <string name="cd_close">Close</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_hero_illustration">Private messaging illustration showing a globe, padlock, microphone bubble, heart bubble, and paper plane</string>
+    <string name="hero_headline">Start chatting</string>
+    <string name="hero_subtitle">Message privately with your contacts, no matter what device they use.</string>
+    <string name="cta_start_chatting">Start chatting</string>
+    <string name="cta_invite_friend">Invite a friend</string>
+    <string name="nav_updates">Updates</string>
+    <string name="nav_calls">Calls</string>
+    <string name="nav_chats">Chats</string>
+    <string name="nav_settings">Settings</string>
+    <string name="invite_share_subject">Join me on Chats</string>
+    <string name="invite_share_text">Let\'s message privately together! Download Chats and message me anytime.</string>
+    <string name="invite_chooser_title">Invite a friend</string>
+
+    <!-- New Chat Sheet -->
+    <string name="sheet_new_chat_title">New chat</string>
+    <string name="sheet_search_placeholder">Search name or number</string>
+    <string name="sheet_new_group">New group</string>
+    <string name="sheet_new_contact">New contact</string>
+    <string name="sheet_new_broadcast">New broadcast</string>
+    <string name="sheet_contacts_section_header">Contacts on WhatsApp</string>
+    <string name="sheet_message_yourself_name">You</string>
+    <string name="sheet_message_yourself_subtitle">Message yourself</string>
+    <string name="sheet_share_invite_link">Share invite link</string>
+
+    <!-- New Contact Sheet -->
+    <string name="new_contact_title">New contact</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_done">Done</string>
+    <string name="hint_first_name">First name</string>
+    <string name="hint_last_name">Last name</string>
+    <string name="label_phone">Phone</string>
+    <string name="label_mobile">Mobile</string>
+    <string name="hint_phone">Phone</string>
+    <string name="label_sync_contact">Sync contact to phone</string>
+    <string name="action_add_qr_code">Add via QR code</string>
+    <string name="country_picker_title">Select country</string>
+    <string name="qr_dialog_title">Contact QR Code</string>
+    <string name="qr_dialog_subtitle">Share this code so friends can scan and add you directly.</string>
+    <string name="qr_dialog_close">Close</string>
+
+    <!-- Chat Interface -->
+    <string name="chat_tap_contact_info">tap here for contact info</string>
+    <string name="chat_date_today">Today</string>
+    <string name="chat_encryption_notice">Messages and calls are end-to-end encrypted. Only people in this chat can read, listen to, or share them.</string>
+    <string name="chat_learn_more">Learn more</string>
+    <string name="chat_encryption_dialog_title">End-to-end encryption</string>
+    <string name="chat_encryption_dialog_body">Your personal messages and calls stay private between you and this contact. Not even the server can read or listen to them.</string>
+    <string name="chat_tooltip_media">Tap the + to send photos and other media</string>
+    <string name="chat_input_placeholder">Message</string>
+    <string name="cd_video_call">Video call</string>
+    <string name="cd_voice_call">Voice call</string>
+    <string name="cd_attach_media">Add media or attachments</string>
+    <string name="cd_emoji_stickers">Emoji and stickers</string>
+    <string name="cd_voice_note">Record voice message</string>
+    <string name="cd_send_message">Send message</string>
+    <string name="cd_dismiss_tooltip">Dismiss tip</string>
+    <string name="chat_info_title">Contact info</string>
+    <string name="chat_info_synced">Synced to phone contacts</string>
+    <string name="chat_info_local">Saved in Chats</string>
+    <string name="chat_calling_banner">Connecting encrypted %1$s call with %2$s…</string>
+    <string name="chat_end_call">End</string>
+
+    <!-- Camera & Secondary Tabs -->
+    <string name="sheet_camera_title">Share a photo</string>
+    <string name="sheet_camera_subtitle">Pick a photo from your device to send privately or add to Updates.</string>
+    <string name="sheet_pick_photo">Choose from gallery</string>
+    <string name="sheet_selected_photo">Photo ready to share</string>
+    <!-- Updates Screen -->
+    <string name="updates_status_header">Status</string>
+    <string name="updates_my_status">My status</string>
+    <string name="updates_add_status_subtitle">Tap to add status update</string>
+    <string name="updates_status_count_single">1 update • %1$s</string>
+    <string name="updates_status_count_multi">%1$d updates • %2$s</string>
+    <string name="updates_recent_header">Recent updates</string>
+    <string name="updates_no_recent_contacts">Status updates from your contacts disappear after 24 hours.</string>
+    <string name="updates_channels_header">Channels</string>
+    <string name="updates_channels_subtitle">Stay updated on topics that matter to you. Create a channel to broadcast updates to followers.</string>
+    <string name="updates_create_channel">Create channel</string>
+    <string name="updates_channel_followers">%1$d follower</string>
+    <string name="updates_status_encrypted_prefix">Your status updates are </string>
+    <string name="updates_status_encrypted_accent">end-to-end encrypted</string>
+    <string name="cd_text_status">Create text status</string>
+    <string name="cd_camera_status">Add photo status</string>
+    <string name="cd_create_channel">Create channel</string>
+    <string name="cd_delete_status">Delete status update</string>
+    <string name="status_composer_title">Text status</string>
+    <string name="status_composer_hint">Type a status…</string>
+    <string name="status_composer_post">Post</string>
+    <string name="status_chooser_title">Add status update</string>
+    <string name="status_chooser_text">Write a text status</string>
+    <string name="status_chooser_photo">Choose photo from gallery</string>
+    <string name="channel_sheet_title">Create channel</string>
+    <string name="channel_name_hint">Channel name</string>
+    <string name="channel_desc_hint">Describe your channel. Including a description is useful for followers.</string>
+    <string name="channel_empty_posts">No updates posted to this channel yet.</string>
+    <string name="channel_post_hint">Post an update…</string>
+    <string name="empty_updates_title">No status updates</string>
+    <string name="empty_updates_subtitle">Share photos, text, and voice updates that disappear after 24 hours.</string>
+    <string name="empty_calls_title">Coming soon</string>
+    <string name="empty_calls_subtitle">End-to-end encrypted voice and video calling is on the way.</string>
+    <string name="empty_settings_title">Privacy &amp; Settings</string>
+    <string name="empty_settings_subtitle">Manage your WhatsApp dark theme preferences, encryption keys, and linked devices.</string>
+</resources>
