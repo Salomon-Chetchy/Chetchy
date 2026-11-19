@@ -2,6 +2,15 @@ package com.example.ui
 
 import android.net.Uri
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.BuildConfig
+import com.example.update.AppUpdateClient
+import com.example.update.GitHubAppUpdateClient
+import com.example.update.UpdateCheckUiState
+import com.example.update.UpdateFetchResult
+import com.example.update.UpdatePreferences
+import com.example.update.isNewerRelease
+import com.example.update.normalizeRepoSlug
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -10,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 enum class BottomNavTab {
   UPDATES,
@@ -142,6 +152,8 @@ data class ChatsUiState(
   val viewingStatusIndex: Int? = null,
   val channels: List<ChannelItem> = emptyList(),
   val activeChannelId: String? = null,
+  val githubRepoSlug: String = UpdatePreferences.DEFAULT_REPO_SLUG,
+  val updateCheckState: UpdateCheckUiState = UpdateCheckUiState.Idle,
   val snackbarMessage: String? = null,
 ) {
   val activeChatContact: Contact?
@@ -171,11 +183,22 @@ data class ChatsUiState(
       }
 }
 
-class ChatsViewModel : ViewModel() {
+class ChatsViewModel(
+  private val updateClient: AppUpdateClient = GitHubAppUpdateClient(),
+  private val installedVersionName: String = BuildConfig.VERSION_NAME,
+  private val installedVersionCode: Int = BuildConfig.VERSION_CODE,
+  private val installedCiBuild: Int = BuildConfig.CI_BUILD_NUMBER,
+) : ViewModel() {
   private val _uiState = MutableStateFlow(ChatsUiState())
   val uiState: StateFlow<ChatsUiState> = _uiState.asStateFlow()
 
   private val timeFormatter = SimpleDateFormat("h:mm a", Locale.getDefault())
+
+  val installedDisplayBuild: Int
+    get() = if (installedCiBuild > 0) installedCiBuild else installedVersionCode
+
+  val installedVersionLabel: String
+    get() = "v$installedVersionName (Build $installedDisplayBuild)"
 
   fun selectTab(tab: BottomNavTab) {
     _uiState.update { it.copy(selectedTab = tab) }
@@ -515,6 +538,67 @@ class ChatsViewModel : ViewModel() {
         )
       }
     }
+  }
+
+  fun setGithubRepoSlug(rawRepo: String, resetStatus: Boolean = false) {
+    val clean = normalizeRepoSlug(rawRepo) ?: rawRepo.trim()
+    if (clean.isEmpty()) return
+    _uiState.update {
+      it.copy(
+        githubRepoSlug = clean,
+        updateCheckState = if (resetStatus) UpdateCheckUiState.Idle else it.updateCheckState,
+      )
+    }
+  }
+
+  fun checkForUpdates() {
+    val repoSlug = _uiState.value.githubRepoSlug
+    if (_uiState.value.updateCheckState is UpdateCheckUiState.Checking) return
+
+    _uiState.update { it.copy(updateCheckState = UpdateCheckUiState.Checking) }
+
+    viewModelScope.launch {
+      when (val result = updateClient.fetchLatestRelease(repoSlug)) {
+        is UpdateFetchResult.Found -> {
+          val release = result.release
+          val newer =
+            isNewerRelease(
+              installedVersionName = installedVersionName,
+              installedVersionCode = installedVersionCode,
+              installedCiBuild = installedCiBuild,
+              release = release,
+            )
+          val newState =
+            if (newer) {
+              UpdateCheckUiState.UpdateAvailable(
+                release = release,
+                installedVersionLabel = installedVersionLabel,
+              )
+            } else {
+              UpdateCheckUiState.UpToDate(
+                installedVersionLabel = installedVersionLabel,
+                checkedAtLabel = timeFormatter.format(Date()),
+              )
+            }
+          _uiState.update { it.copy(updateCheckState = newState) }
+        }
+        is UpdateFetchResult.Failure -> {
+          _uiState.update {
+            it.copy(
+              updateCheckState =
+                UpdateCheckUiState.Error(
+                  message = result.message,
+                  suggestRepoEdit = result.suggestRepoEdit,
+                )
+            )
+          }
+        }
+      }
+    }
+  }
+
+  fun showSnackbar(message: String) {
+    _uiState.update { it.copy(snackbarMessage = message) }
   }
 
   fun clearSnackbar() {

@@ -19,6 +19,9 @@ android {
     versionCode = 1
     versionName = "1.0"
 
+    val ciBuildNumber = providers.gradleProperty("ciBuildNumber").orNull?.toIntOrNull() ?: 0
+    buildConfigField("int", "CI_BUILD_NUMBER", ciBuildNumber.toString())
+
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 

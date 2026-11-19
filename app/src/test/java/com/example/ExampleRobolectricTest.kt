@@ -12,7 +12,15 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.ui.ChatsScreen
 import com.example.ui.ChatsViewModel
 import com.example.ui.theme.WhatsAppDarkTheme
+import com.example.update.AppUpdateClient
+import com.example.update.UpdateFetchResult
+import com.example.update.UpdateReleaseInfo
+import com.example.update.formatSizeInMb
+import com.example.update.isNewerRelease
+import com.example.update.parseReleaseJson
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -159,5 +167,150 @@ class ExampleRobolectricTest {
     composeTestRule.mainClock.advanceTimeBy(300L)
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithText("Coming soon").assertIsDisplayed()
+  }
+
+  @Test
+  fun `release json parsing computes exact MB size and compares CI build numbers`() {
+    val json =
+      """
+      {
+        "tag_name": "v1.0-b5",
+        "name": "Chats v1.0 (Build 5)",
+        "html_url": "https://github.com/Salomon-Chetchy/Chats/releases/tag/v1.0-b5",
+        "body": "Automated APK build for Chats (`versionCode = 1`).",
+        "assets": [
+          {
+            "name": "Chats-debug.apk",
+            "size": 15518925,
+            "browser_download_url": "https://github.com/Salomon-Chetchy/Chats/releases/download/v1.0-b5/Chats-debug.apk"
+          }
+        ]
+      }
+      """.trimIndent()
+
+    val parsed = parseReleaseJson(json)
+    assertTrue(parsed is UpdateFetchResult.Found)
+    val release = (parsed as UpdateFetchResult.Found).release
+    assertEquals("14.8 MB", release.formattedSizeMb)
+    assertEquals("14.8 MB", formatSizeInMb(15_518_925L))
+    assertEquals(5, release.buildNumber)
+
+    assertTrue(
+      isNewerRelease(
+        installedVersionName = "1.0",
+        installedVersionCode = 1,
+        installedCiBuild = 4,
+        release = release,
+      )
+    )
+    assertFalse(
+      isNewerRelease(
+        installedVersionName = "1.0",
+        installedVersionCode = 1,
+        installedCiBuild = 5,
+        release = release,
+      )
+    )
+  }
+
+  @Test
+  fun `settings tab checks for update and displays available version with MB download size`() {
+    val fakeClient =
+      object : AppUpdateClient {
+        override suspend fun fetchLatestRelease(repoSlug: String): UpdateFetchResult {
+          return UpdateFetchResult.Found(
+            UpdateReleaseInfo(
+              versionName = "1.1",
+              versionCode = 2,
+              buildNumber = 5,
+              tagName = "v1.1-b5",
+              releaseName = "Chats v1.1 (Build 5)",
+              apkFileName = "Chats-debug.apk",
+              apkSizeBytes = 15_518_925L,
+              downloadUrl = "https://example.com/Chats-debug.apk",
+              releasePageUrl = "https://example.com/release",
+              releaseNotes = "Added in-app update checker.",
+            )
+          )
+        }
+      }
+
+    val vm =
+      ChatsViewModel(
+        updateClient = fakeClient,
+        installedVersionName = "1.0",
+        installedVersionCode = 1,
+        installedCiBuild = 4,
+      )
+
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = vm)
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("nav_settings").performClick()
+    composeTestRule.mainClock.advanceTimeBy(300L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("app_updates_card").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("check_updates_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("update_available_banner").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Update available: v1.1 (Build 5)").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Download needed: 14.8 MB").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Download update (14.8 MB)").assertIsDisplayed()
+  }
+
+  @Test
+  fun `settings tab shows up to date when latest release matches installed build`() {
+    val fakeClient =
+      object : AppUpdateClient {
+        override suspend fun fetchLatestRelease(repoSlug: String): UpdateFetchResult {
+          return UpdateFetchResult.Found(
+            UpdateReleaseInfo(
+              versionName = "1.0",
+              versionCode = 1,
+              buildNumber = 4,
+              tagName = "v1.0-b4",
+              releaseName = "Chats v1.0 (Build 4)",
+              apkFileName = "Chats-debug.apk",
+              apkSizeBytes = 14_000_000L,
+              downloadUrl = "https://example.com/Chats-debug.apk",
+              releasePageUrl = "https://example.com/release",
+              releaseNotes = "",
+            )
+          )
+        }
+      }
+
+    val vm =
+      ChatsViewModel(
+        updateClient = fakeClient,
+        installedVersionName = "1.0",
+        installedVersionCode = 1,
+        installedCiBuild = 4,
+      )
+
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = vm)
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("nav_settings").performClick()
+    composeTestRule.mainClock.advanceTimeBy(300L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("check_updates_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("update_up_to_date_banner").assertIsDisplayed()
+    composeTestRule.onNodeWithText("You're up to date").assertIsDisplayed()
   }
 }

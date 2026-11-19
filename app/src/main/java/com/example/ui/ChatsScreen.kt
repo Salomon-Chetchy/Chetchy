@@ -208,6 +208,12 @@ fun ChatsScreen(
           onOpenStatusAt = viewModel::openStatusViewer,
           onCreateChannelClick = viewModel::openCreateChannelSheet,
           onOpenChannelClick = { ch -> viewModel.openChannel(ch.id) },
+          installedVersionName = com.example.BuildConfig.VERSION_NAME,
+          installedBuildNumber = viewModel.installedDisplayBuild,
+          onSyncSavedRepo = { saved -> viewModel.setGithubRepoSlug(saved, resetStatus = false) },
+          onSaveRepo = { updated -> viewModel.setGithubRepoSlug(updated, resetStatus = true) },
+          onCheckUpdates = viewModel::checkForUpdates,
+          onShowSnackbar = viewModel::showSnackbar,
         )
       }
     }
@@ -356,6 +362,12 @@ private fun ChatsHomeContainer(
   onOpenStatusAt: (Int) -> Unit,
   onCreateChannelClick: () -> Unit,
   onOpenChannelClick: (ChannelItem) -> Unit,
+  installedVersionName: String,
+  installedBuildNumber: Int,
+  onSyncSavedRepo: (String) -> Unit,
+  onSaveRepo: (String) -> Unit,
+  onCheckUpdates: () -> Unit,
+  onShowSnackbar: (String) -> Unit,
 ) {
   BackHandler(enabled = uiState.selectedTab != BottomNavTab.CHATS) {
     onSelectTab(BottomNavTab.CHATS)
@@ -438,12 +450,15 @@ private fun ChatsHomeContainer(
                   onActionClick = { onSelectTab(BottomNavTab.CHATS) },
                 )
               BottomNavTab.SETTINGS ->
-                SecondaryTabEmptyContent(
-                  icon = LucideIcons.Settings,
-                  title = stringResource(R.string.empty_settings_title),
-                  subtitle = stringResource(R.string.empty_settings_subtitle),
-                  actionLabel = stringResource(R.string.nav_chats),
-                  onActionClick = { onSelectTab(BottomNavTab.CHATS) },
+                SettingsTabContent(
+                  installedVersionName = installedVersionName,
+                  installedBuildNumber = installedBuildNumber,
+                  githubRepoSlug = uiState.githubRepoSlug,
+                  updateCheckState = uiState.updateCheckState,
+                  onSyncSavedRepo = onSyncSavedRepo,
+                  onSaveRepo = onSaveRepo,
+                  onCheckUpdates = onCheckUpdates,
+                  onShowSnackbar = onShowSnackbar,
                 )
             }
           }

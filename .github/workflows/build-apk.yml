@@ -56,7 +56,7 @@ jobs:
           [ -f .env ] || [ -f .env.example ] || touch .env.example
 
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: gradle assembleDebug -PciBuildNumber=${{ github.run_number }} --no-daemon --stacktrace
 
       - name: Prepare APK filename
         id: apk_info
