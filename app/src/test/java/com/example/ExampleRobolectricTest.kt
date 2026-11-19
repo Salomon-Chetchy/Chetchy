@@ -50,9 +50,14 @@ class ExampleRobolectricTest {
     composeTestRule.waitForIdle()
 
     composeTestRule.onNodeWithTag("camera_button").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("more_options_button").assertIsDisplayed()
     composeTestRule.onNodeWithTag("new_chat_plus_button").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("chats_search_input").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("archived_row").assertIsDisplayed()
 
-    assertEquals(2, composeTestRule.onAllNodesWithText("Chats").fetchSemanticsNodes().size)
+    composeTestRule.onNodeWithText("Chetchy").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Archived").assertIsDisplayed()
+    assertEquals(1, composeTestRule.onAllNodesWithText("Chats").fetchSemanticsNodes().size)
     assertEquals(2, composeTestRule.onAllNodesWithText("Start chatting").fetchSemanticsNodes().size)
 
     composeTestRule
@@ -61,11 +66,11 @@ class ExampleRobolectricTest {
     composeTestRule.onNodeWithTag("start_chatting_button").assertIsDisplayed()
     composeTestRule.onNodeWithTag("invite_friend_button").assertIsDisplayed()
 
-    composeTestRule.onNodeWithTag("nav_updates").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("nav_calls").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("nav_communities").assertDoesNotExist()
     composeTestRule.onNodeWithTag("nav_chats").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nav_calls").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nav_updates").assertIsDisplayed()
     composeTestRule.onNodeWithTag("nav_settings").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nav_communities").assertDoesNotExist()
   }
 
   @Test

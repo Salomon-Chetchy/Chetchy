@@ -1,6 +1,18 @@
 <resources>
     <string name="app_name">Chats</string>
     <string name="title_chats">Chats</string>
+    <string name="title_chetchy">Chetchy</string>
+    <string name="chats_search_placeholder">Search…</string>
+    <string name="chats_archived_label">Archived</string>
+    <string name="chats_archived_empty">No archived chats yet. Long-press any chat to archive it.</string>
+    <string name="chats_back_to_all">Back to all chats</string>
+    <string name="chats_menu_new_chat">New chat</string>
+    <string name="chats_menu_archived">Archived chats</string>
+    <string name="chats_menu_settings">Settings &amp; updates</string>
+    <string name="cd_more_options">More options</string>
+    <string name="cd_clear_search">Clear search</string>
+    <string name="chats_archive_action">Archive chat</string>
+    <string name="chats_unarchive_action">Unarchive chat</string>
     <string name="cd_camera_action">Open camera or media</string>
     <string name="cd_new_chat_action">New chat</string>
     <string name="cd_close">Close</string>
@@ -14,8 +26,8 @@
     <string name="nav_calls">Calls</string>
     <string name="nav_chats">Chats</string>
     <string name="nav_settings">Settings</string>
-    <string name="invite_share_subject">Join me on Chats</string>
-    <string name="invite_share_text">Let\'s message privately together! Download Chats and message me anytime.</string>
+    <string name="invite_share_subject">Join me on Chetchy</string>
+    <string name="invite_share_text">Let\'s message privately together! Download Chetchy and message me anytime.</string>
     <string name="invite_chooser_title">Invite a friend</string>
 
     <!-- New Chat Sheet -->

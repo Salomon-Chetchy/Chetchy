@@ -1107,6 +1107,103 @@ object LucideIcons {
     }
   }
 
+  // Lucide: more-vertical
+  val MoreVertical: ImageVector by lazy {
+    lucideIcon("MoreVertical") {
+      path(
+        fill = SolidColor(Color.Black),
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.6f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(13f, 5f)
+        arcTo(1f, 1f, 0f, true, true, 11f, 5f)
+        arcTo(1f, 1f, 0f, true, true, 13f, 5f)
+        close()
+        moveTo(13f, 12f)
+        arcTo(1f, 1f, 0f, true, true, 11f, 12f)
+        arcTo(1f, 1f, 0f, true, true, 13f, 12f)
+        close()
+        moveTo(13f, 19f)
+        arcTo(1f, 1f, 0f, true, true, 11f, 19f)
+        arcTo(1f, 1f, 0f, true, true, 13f, 19f)
+        close()
+      }
+    }
+  }
+
+  // Lucide: archive
+  val Archive: ImageVector by lazy {
+    lucideIcon("Archive") {
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.9f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(3f, 4f)
+        horizontalLineTo(21f)
+        arcTo(1f, 1f, 0f, false, true, 22f, 5f)
+        verticalLineTo(7f)
+        arcTo(1f, 1f, 0f, false, true, 21f, 8f)
+        horizontalLineTo(3f)
+        arcTo(1f, 1f, 0f, false, true, 2f, 7f)
+        verticalLineTo(5f)
+        arcTo(1f, 1f, 0f, false, true, 3f, 4f)
+        close()
+      }
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.9f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(4f, 8f)
+        verticalLineTo(19f)
+        arcTo(2f, 2f, 0f, false, false, 6f, 21f)
+        horizontalLineTo(18f)
+        arcTo(2f, 2f, 0f, false, false, 20f, 19f)
+        verticalLineTo(8f)
+        moveTo(10f, 12f)
+        horizontalLineTo(14f)
+      }
+    }
+  }
+
+  // Lucide: message-square-plus (floating New chat FAB icon)
+  val MessageSquarePlus: ImageVector by lazy {
+    lucideIcon("MessageSquarePlus") {
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 2f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(21f, 15f)
+        arcTo(2f, 2f, 0f, false, true, 19f, 17f)
+        horizontalLineTo(7f)
+        lineTo(3f, 21f)
+        verticalLineTo(5f)
+        arcTo(2f, 2f, 0f, false, true, 5f, 3f)
+        horizontalLineTo(19f)
+        arcTo(2f, 2f, 0f, false, true, 21f, 5f)
+        close()
+      }
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 2f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(12f, 7f)
+        verticalLineTo(13f)
+        moveTo(9f, 10f)
+        horizontalLineTo(15f)
+      }
+    }
+  }
+
   private inline fun lucideIcon(
     name: String,
     block: ImageVector.Builder.() -> Unit,

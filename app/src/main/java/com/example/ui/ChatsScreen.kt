@@ -14,8 +14,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,35 +29,26 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,25 +62,25 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.BuildConfig
 import com.example.R
+import com.example.ui.components.ActiveChatsListContent
+import com.example.ui.components.ChetchyBottomNavigationBar
+import com.example.ui.components.ChetchyNavigationRail
+import com.example.ui.components.ChetchyTopBar
 import com.example.ui.components.NewChatSheetContent
 import com.example.ui.components.NewContactSheetContent
 import com.example.ui.components.StartChattingIllustration
 import com.example.ui.icons.LucideIcons
 import com.example.ui.theme.AccentPurple
 import com.example.ui.theme.AccentPurpleBright
-import com.example.ui.theme.AccentPurpleMuted
-import com.example.ui.theme.AccentPurpleSoftDark
 import com.example.ui.theme.OnAccentPurple
 import com.example.ui.theme.WhatsAppBackground
-import com.example.ui.theme.WhatsAppOutlineSubtle
 import com.example.ui.theme.WhatsAppSurface
-import com.example.ui.theme.WhatsAppSurfaceContainer
 import com.example.ui.theme.WhatsAppSurfaceElevated
 import com.example.ui.theme.WhatsAppTextPrimary
 import com.example.ui.theme.WhatsAppTextSecondary
@@ -192,6 +181,9 @@ fun ChatsScreen(
           onOpenNewChat = viewModel::openNewChatSheet,
           onOpenConversation = viewModel::openChatWithContact,
           onShareInvite = shareInvite,
+          onChatListSearchChange = viewModel::updateChatListSearchQuery,
+          onToggleArchivedFilter = { viewModel.toggleArchivedFilter() },
+          onToggleArchiveChat = { contact -> viewModel.toggleArchiveChat(contact.id) },
           onMyStatusClick = {
             if (uiState.myStatuses.isEmpty()) {
               viewModel.openStatusTypeChooser()
@@ -208,7 +200,7 @@ fun ChatsScreen(
           onOpenStatusAt = viewModel::openStatusViewer,
           onCreateChannelClick = viewModel::openCreateChannelSheet,
           onOpenChannelClick = { ch -> viewModel.openChannel(ch.id) },
-          installedVersionName = com.example.BuildConfig.VERSION_NAME,
+          installedVersionName = BuildConfig.VERSION_NAME,
           installedBuildNumber = viewModel.installedDisplayBuild,
           onSyncSavedRepo = { saved -> viewModel.setGithubRepoSlug(saved, resetStatus = false) },
           onSaveRepo = { updated -> viewModel.setGithubRepoSlug(updated, resetStatus = true) },
@@ -356,6 +348,9 @@ private fun ChatsHomeContainer(
   onOpenNewChat: () -> Unit,
   onOpenConversation: (String) -> Unit,
   onShareInvite: () -> Unit,
+  onChatListSearchChange: (String) -> Unit,
+  onToggleArchivedFilter: () -> Unit,
+  onToggleArchiveChat: (Contact) -> Unit,
   onMyStatusClick: () -> Unit,
   onAddPhotoStatusClick: () -> Unit,
   onAddTextStatusClick: () -> Unit,
@@ -369,8 +364,12 @@ private fun ChatsHomeContainer(
   onCheckUpdates: () -> Unit,
   onShowSnackbar: (String) -> Unit,
 ) {
-  BackHandler(enabled = uiState.selectedTab != BottomNavTab.CHATS) {
-    onSelectTab(BottomNavTab.CHATS)
+  BackHandler(enabled = uiState.selectedTab != BottomNavTab.CHATS || uiState.showArchivedChats) {
+    if (uiState.selectedTab == BottomNavTab.CHATS && uiState.showArchivedChats) {
+      onToggleArchivedFilter()
+    } else {
+      onSelectTab(BottomNavTab.CHATS)
+    }
   }
 
   BoxWithConstraints(modifier = Modifier.fillMaxSize().background(WhatsAppBackground)) {
@@ -378,7 +377,7 @@ private fun ChatsHomeContainer(
 
     Row(modifier = Modifier.fillMaxSize()) {
       if (isExpandedWidth) {
-        WhatsAppNavigationRail(
+        ChetchyNavigationRail(
           selectedTab = uiState.selectedTab,
           onSelectTab = onSelectTab,
         )
@@ -390,17 +389,38 @@ private fun ChatsHomeContainer(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
-          WhatsAppChatsTopBar(
+          ChetchyTopBar(
             title = tabTitle(uiState.selectedTab),
-            showChatActions = uiState.selectedTab == BottomNavTab.CHATS,
+            isChatsTab = uiState.selectedTab == BottomNavTab.CHATS,
             onCameraClick = onOpenCamera,
             onNewChatClick = onOpenNewChat,
+            onToggleArchivedClick = onToggleArchivedFilter,
+            onOpenSettingsClick = { onSelectTab(BottomNavTab.SETTINGS) },
           )
+        },
+        floatingActionButton = {
+          if (uiState.selectedTab == BottomNavTab.CHATS) {
+            FloatingActionButton(
+              onClick = onOpenNewChat,
+              shape = RoundedCornerShape(16.dp),
+              containerColor = AccentPurple,
+              contentColor = OnAccentPurple,
+              elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp),
+              modifier = Modifier.size(56.dp).testTag("new_chat_plus_button"),
+            ) {
+              Icon(
+                imageVector = LucideIcons.MessageSquarePlus,
+                contentDescription = stringResource(R.string.cd_new_chat_action),
+                modifier = Modifier.size(24.dp),
+              )
+            }
+          }
         },
         bottomBar = {
           if (!isExpandedWidth) {
-            WhatsAppBottomNavigationBar(
+            ChetchyBottomNavigationBar(
               selectedTab = uiState.selectedTab,
+              showUpdatesBadge = uiState.myStatuses.isNotEmpty() || uiState.channels.isNotEmpty(),
               onSelectTab = onSelectTab,
             )
           }
@@ -408,7 +428,7 @@ private fun ChatsHomeContainer(
       ) { innerPadding ->
         Box(
           modifier = Modifier.fillMaxSize().padding(innerPadding),
-          contentAlignment = Alignment.Center,
+          contentAlignment = Alignment.TopCenter,
         ) {
           Crossfade(
             targetState = uiState.selectedTab,
@@ -417,18 +437,25 @@ private fun ChatsHomeContainer(
           ) { tab ->
             when (tab) {
               BottomNavTab.CHATS -> {
-                val activeConversations = uiState.conversationsWithMessages
-                if (activeConversations.isEmpty()) {
-                  ChatsEmptyHeroContent(
-                    onStartChattingClick = onOpenNewChat,
-                    onInviteFriendClick = onShareInvite,
-                  )
-                } else {
-                  ActiveChatsListContent(
-                    conversations = activeConversations,
-                    onConversationClick = { contact -> onOpenConversation(contact.id) },
-                  )
-                }
+                ActiveChatsListContent(
+                  conversations = uiState.visibleConversations,
+                  hasMyStatuses = uiState.myStatuses.isNotEmpty(),
+                  isViewingArchived = uiState.showArchivedChats,
+                  archivedCount = uiState.archivedConversationsCount,
+                  searchQuery = uiState.chatListSearchQuery,
+                  onSearchQueryChange = onChatListSearchChange,
+                  onToggleArchived = onToggleArchivedFilter,
+                  onConversationClick = { contact -> onOpenConversation(contact.id) },
+                  onToggleArchiveChat = onToggleArchiveChat,
+                  onStartChattingClick = onOpenNewChat,
+                  onInviteFriendClick = onShareInvite,
+                  emptyHeroContent = {
+                    ChatsEmptyHeroContent(
+                      onStartChattingClick = onOpenNewChat,
+                      onInviteFriendClick = onShareInvite,
+                    )
+                  },
+                )
               }
               BottomNavTab.UPDATES ->
                 UpdatesTabContent(
@@ -469,277 +496,90 @@ private fun ChatsHomeContainer(
 }
 
 @Composable
-private fun ActiveChatsListContent(
-  conversations: List<Pair<Contact, ChatMessage>>,
-  onConversationClick: (Contact) -> Unit,
-) {
-  LazyColumn(
-    modifier = Modifier.fillMaxSize().widthIn(max = 600.dp),
-    contentPadding = PaddingValues(vertical = 8.dp),
-  ) {
-    items(conversations, key = { it.first.id }) { (contact, lastMessage) ->
-      Row(
-        modifier =
-          Modifier
-            .fillMaxWidth()
-            .minimumInteractiveComponentSize()
-            .clickable(
-              interactionSource = remember { MutableInteractionSource() },
-              indication = ripple(bounded = true),
-              onClick = { onConversationClick(contact) },
-            )
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .testTag("conversation_row_${contact.id}"),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Box(
-          modifier =
-            Modifier
-              .size(50.dp)
-              .clip(CircleShape)
-              .background(AccentPurpleSoftDark),
-          contentAlignment = Alignment.Center,
-        ) {
-          if (contact.initials.isNotEmpty() && !contact.isSelf) {
-            Text(
-              text = contact.initials,
-              style = MaterialTheme.typography.titleMedium,
-              color = AccentPurpleMuted,
-            )
-          } else {
-            Icon(
-              imageVector = LucideIcons.User,
-              contentDescription = null,
-              tint = AccentPurpleMuted,
-              modifier = Modifier.size(24.dp),
-            )
-          }
-        }
-        Spacer(modifier = Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Text(
-              text = contact.displayName,
-              style = MaterialTheme.typography.titleMedium,
-              color = WhatsAppTextPrimary,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-              modifier = Modifier.weight(1f),
-            )
-            Text(
-              text = lastMessage.timestampLabel,
-              style = MaterialTheme.typography.labelSmall,
-              color = AccentPurpleBright,
-            )
-          }
-          Spacer(modifier = Modifier.height(3.dp))
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-              imageVector = LucideIcons.CheckCheck,
-              contentDescription = null,
-              tint = AccentPurpleBright,
-              modifier = Modifier.size(15.dp),
-            )
-            Spacer(modifier = Modifier.width(5.dp))
-            Text(
-              text = lastMessage.text,
-              style = MaterialTheme.typography.bodyMedium,
-              color = WhatsAppTextSecondary,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-            )
-          }
-        }
-      }
-      HorizontalDivider(
-        thickness = 0.5.dp,
-        color = WhatsAppOutlineSubtle,
-        modifier = Modifier.padding(start = 80.dp),
-      )
-    }
-  }
-}
-
-@Composable
 private fun tabTitle(tab: BottomNavTab): String =
   when (tab) {
-    BottomNavTab.CHATS -> stringResource(R.string.title_chats)
+    BottomNavTab.CHATS -> stringResource(R.string.title_chetchy)
     BottomNavTab.UPDATES -> stringResource(R.string.nav_updates)
     BottomNavTab.CALLS -> stringResource(R.string.nav_calls)
     BottomNavTab.SETTINGS -> stringResource(R.string.nav_settings)
   }
 
 @Composable
-private fun WhatsAppChatsTopBar(
-  title: String,
-  showChatActions: Boolean,
-  onCameraClick: () -> Unit,
-  onNewChatClick: () -> Unit,
-) {
-  Box(
-    modifier =
-      Modifier
-        .fillMaxWidth()
-        .background(WhatsAppBackground)
-        .statusBarsPadding()
-        .padding(horizontal = 16.dp, vertical = 10.dp)
-        .height(48.dp)
-  ) {
-    Text(
-      text = title,
-      style = MaterialTheme.typography.titleLarge,
-      color = WhatsAppTextPrimary,
-      maxLines = 1,
-      overflow = TextOverflow.Ellipsis,
-      modifier = Modifier.align(Alignment.Center),
-    )
-
-    if (showChatActions) {
-      Row(
-        modifier = Modifier.align(Alignment.CenterEnd),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Box(
-          modifier =
-            Modifier
-              .minimumInteractiveComponentSize()
-              .size(38.dp)
-              .clip(CircleShape)
-              .background(WhatsAppSurfaceContainer)
-              .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(bounded = true),
-                onClick = onCameraClick,
-              )
-              .testTag("camera_button"),
-          contentAlignment = Alignment.Center,
-        ) {
-          Icon(
-            imageVector = LucideIcons.Camera,
-            contentDescription = stringResource(R.string.cd_camera_action),
-            tint = WhatsAppTextPrimary,
-            modifier = Modifier.size(19.dp),
-          )
-        }
-
-        Box(
-          modifier =
-            Modifier
-              .minimumInteractiveComponentSize()
-              .size(38.dp)
-              .clip(CircleShape)
-              .background(AccentPurple)
-              .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(bounded = true),
-                onClick = onNewChatClick,
-              )
-              .testTag("new_chat_plus_button"),
-          contentAlignment = Alignment.Center,
-        ) {
-          Icon(
-            imageVector = LucideIcons.Plus,
-            contentDescription = stringResource(R.string.cd_new_chat_action),
-            tint = OnAccentPurple,
-            modifier = Modifier.size(21.dp),
-          )
-        }
-      }
-    }
-  }
-}
-
-@Composable
 private fun ChatsEmptyHeroContent(
   onStartChattingClick: () -> Unit,
   onInviteFriendClick: () -> Unit,
 ) {
-  BoxWithConstraints(
-    modifier = Modifier.fillMaxSize(),
-    contentAlignment = Alignment.Center,
+  Column(
+    modifier =
+      Modifier
+        .fillMaxWidth()
+        .widthIn(max = 520.dp)
+        .padding(horizontal = 32.dp, vertical = 20.dp),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.Center,
   ) {
-    val compactHeight = maxHeight < 520.dp
-    val illustrationWidth = if (compactHeight) 182.dp else 228.dp
-    val illustrationHeight = if (compactHeight) 156.dp else 196.dp
+    StartChattingIllustration(
+      modifier = Modifier.size(width = 188.dp, height = 160.dp)
+    )
 
-    Column(
+    Spacer(modifier = Modifier.height(14.dp))
+
+    Text(
+      text = stringResource(R.string.hero_headline),
+      style = MaterialTheme.typography.headlineMedium,
+      color = WhatsAppTextPrimary,
+      textAlign = TextAlign.Center,
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    Text(
+      text = stringResource(R.string.hero_subtitle),
+      style = MaterialTheme.typography.bodyLarge,
+      color = WhatsAppTextSecondary,
+      textAlign = TextAlign.Center,
+      modifier = Modifier.widthIn(max = 310.dp),
+    )
+
+    Spacer(modifier = Modifier.height(20.dp))
+
+    Button(
+      onClick = onStartChattingClick,
+      shape = RoundedCornerShape(50),
+      colors =
+        ButtonDefaults.buttonColors(
+          containerColor = AccentPurple,
+          contentColor = OnAccentPurple,
+        ),
+      contentPadding = PaddingValues(horizontal = 28.dp, vertical = 14.dp),
       modifier =
         Modifier
-          .fillMaxWidth()
-          .widthIn(max = 520.dp)
-          .verticalScroll(rememberScrollState())
-          .padding(horizontal = 32.dp, vertical = if (compactHeight) 12.dp else 24.dp),
-      horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.Center,
+          .minimumInteractiveComponentSize()
+          .height(48.dp)
+          .testTag("start_chatting_button"),
     ) {
-      StartChattingIllustration(
-        modifier = Modifier.size(width = illustrationWidth, height = illustrationHeight)
-      )
-
-      Spacer(modifier = Modifier.height(if (compactHeight) 12.dp else 20.dp))
-
       Text(
-        text = stringResource(R.string.hero_headline),
-        style = MaterialTheme.typography.headlineMedium,
-        color = WhatsAppTextPrimary,
-        textAlign = TextAlign.Center,
+        text = stringResource(R.string.cta_start_chatting),
+        style = MaterialTheme.typography.labelLarge,
       )
+    }
 
-      Spacer(modifier = Modifier.height(if (compactHeight) 8.dp else 12.dp))
+    Spacer(modifier = Modifier.height(10.dp))
 
+    TextButton(
+      onClick = onInviteFriendClick,
+      shape = RoundedCornerShape(50),
+      colors = ButtonDefaults.textButtonColors(contentColor = AccentPurpleBright),
+      contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+      modifier =
+        Modifier
+          .minimumInteractiveComponentSize()
+          .testTag("invite_friend_button"),
+    ) {
       Text(
-        text = stringResource(R.string.hero_subtitle),
-        style = MaterialTheme.typography.bodyLarge,
-        color = WhatsAppTextSecondary,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.widthIn(max = 310.dp),
+        text = stringResource(R.string.cta_invite_friend),
+        style = MaterialTheme.typography.labelLarge,
       )
-
-      Spacer(modifier = Modifier.height(if (compactHeight) 18.dp else 28.dp))
-
-      Button(
-        onClick = onStartChattingClick,
-        shape = RoundedCornerShape(50),
-        colors =
-          ButtonDefaults.buttonColors(
-            containerColor = AccentPurple,
-            contentColor = OnAccentPurple,
-          ),
-        contentPadding = PaddingValues(horizontal = 28.dp, vertical = 14.dp),
-        modifier =
-          Modifier
-            .minimumInteractiveComponentSize()
-            .height(48.dp)
-            .testTag("start_chatting_button"),
-      ) {
-        Text(
-          text = stringResource(R.string.cta_start_chatting),
-          style = MaterialTheme.typography.labelLarge,
-        )
-      }
-
-      Spacer(modifier = Modifier.height(if (compactHeight) 8.dp else 12.dp))
-
-      TextButton(
-        onClick = onInviteFriendClick,
-        shape = RoundedCornerShape(50),
-        colors = ButtonDefaults.textButtonColors(contentColor = AccentPurpleBright),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-        modifier =
-          Modifier
-            .minimumInteractiveComponentSize()
-            .testTag("invite_friend_button"),
-      ) {
-        Text(
-          text = stringResource(R.string.cta_invite_friend),
-          style = MaterialTheme.typography.labelLarge,
-        )
-      }
     }
   }
 }
@@ -755,7 +595,7 @@ private fun SecondaryTabEmptyContent(
   Column(
     modifier =
       Modifier
-        .fillMaxWidth()
+        .fillMaxSize()
         .widthIn(max = 460.dp)
         .padding(horizontal = 32.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
@@ -809,153 +649,6 @@ private fun SecondaryTabEmptyContent(
       modifier = Modifier.minimumInteractiveComponentSize().height(48.dp),
     ) {
       Text(text = actionLabel, style = MaterialTheme.typography.labelLarge)
-    }
-  }
-}
-
-private data class NavTabSpec(
-  val tab: BottomNavTab,
-  val labelRes: Int,
-  val icon: ImageVector,
-  val activeIcon: ImageVector = icon,
-  val testTag: String,
-)
-
-private val BottomNavSpecs =
-  listOf(
-    NavTabSpec(
-      tab = BottomNavTab.UPDATES,
-      labelRes = R.string.nav_updates,
-      icon = LucideIcons.MessageCircleDashed,
-      testTag = "nav_updates",
-    ),
-    NavTabSpec(
-      tab = BottomNavTab.CALLS,
-      labelRes = R.string.nav_calls,
-      icon = LucideIcons.Phone,
-      testTag = "nav_calls",
-    ),
-    NavTabSpec(
-      tab = BottomNavTab.CHATS,
-      labelRes = R.string.nav_chats,
-      icon = LucideIcons.ChatsOutlined,
-      activeIcon = LucideIcons.ChatsFilled,
-      testTag = "nav_chats",
-    ),
-    NavTabSpec(
-      tab = BottomNavTab.SETTINGS,
-      labelRes = R.string.nav_settings,
-      icon = LucideIcons.Settings,
-      testTag = "nav_settings",
-    ),
-  )
-
-@Composable
-private fun WhatsAppBottomNavigationBar(
-  selectedTab: BottomNavTab,
-  onSelectTab: (BottomNavTab) -> Unit,
-) {
-  Surface(
-    color = WhatsAppSurface,
-    tonalElevation = 0.dp,
-    modifier = Modifier.fillMaxWidth(),
-  ) {
-    Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding()) {
-      HorizontalDivider(thickness = 0.5.dp, color = WhatsAppOutlineSubtle)
-      Row(
-        modifier =
-          Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        BottomNavSpecs.forEach { spec ->
-          val isSelected = selectedTab == spec.tab
-          val label = stringResource(spec.labelRes)
-          val tint = if (isSelected) AccentPurpleBright else WhatsAppTextSecondary
-
-          Column(
-            modifier =
-              Modifier
-                .weight(1f)
-                .minimumInteractiveComponentSize()
-                .clip(RoundedCornerShape(14.dp))
-                .clickable(
-                  interactionSource = remember { MutableInteractionSource() },
-                  indication = ripple(bounded = true),
-                  onClick = { onSelectTab(spec.tab) },
-                )
-                .padding(vertical = 6.dp)
-                .testTag(spec.testTag),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-          ) {
-            Icon(
-              imageVector = if (isSelected) spec.activeIcon else spec.icon,
-              contentDescription = label,
-              tint = tint,
-              modifier = Modifier.size(24.dp),
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-              text = label,
-              style =
-                MaterialTheme.typography.labelSmall.copy(
-                  fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                ),
-              color = tint,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-            )
-          }
-        }
-      }
-    }
-  }
-}
-
-@Composable
-private fun WhatsAppNavigationRail(
-  selectedTab: BottomNavTab,
-  onSelectTab: (BottomNavTab) -> Unit,
-) {
-  NavigationRail(
-    containerColor = WhatsAppSurface,
-    contentColor = WhatsAppTextPrimary,
-    modifier = Modifier.statusBarsPadding().navigationBarsPadding(),
-  ) {
-    Spacer(modifier = Modifier.height(16.dp))
-    BottomNavSpecs.forEach { spec ->
-      val isSelected = selectedTab == spec.tab
-      val label = stringResource(spec.labelRes)
-      NavigationRailItem(
-        selected = isSelected,
-        onClick = { onSelectTab(spec.tab) },
-        icon = {
-          Icon(
-            imageVector = if (isSelected) spec.activeIcon else spec.icon,
-            contentDescription = label,
-            modifier = Modifier.size(22.dp),
-          )
-        },
-        label = {
-          Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-          )
-        },
-        colors =
-          NavigationRailItemDefaults.colors(
-            selectedIconColor = OnAccentPurple,
-            selectedTextColor = WhatsAppTextPrimary,
-            indicatorColor = AccentPurple,
-            unselectedIconColor = WhatsAppTextSecondary,
-            unselectedTextColor = WhatsAppTextSecondary,
-          ),
-        modifier = Modifier.testTag(spec.testTag),
-      )
     }
   }
 }

@@ -152,6 +152,9 @@ data class ChatsUiState(
   val viewingStatusIndex: Int? = null,
   val channels: List<ChannelItem> = emptyList(),
   val activeChannelId: String? = null,
+  val chatListSearchQuery: String = "",
+  val archivedContactIds: Set<String> = emptySet(),
+  val showArchivedChats: Boolean = false,
   val githubRepoSlug: String = UpdatePreferences.DEFAULT_REPO_SLUG,
   val updateCheckState: UpdateCheckUiState = UpdateCheckUiState.Idle,
   val snackbarMessage: String? = null,
@@ -181,6 +184,28 @@ data class ChatsUiState(
         val last = messagesByContact[contact.id]?.lastOrNull()
         if (last != null) contact to last else null
       }
+
+  val archivedConversationsCount: Int
+    get() = conversationsWithMessages.count { (contact, _) -> contact.id in archivedContactIds }
+
+  val visibleConversations: List<Pair<Contact, ChatMessage>>
+    get() {
+      val q = chatListSearchQuery.trim().lowercase()
+      return conversationsWithMessages.filter { (contact, lastMessage) ->
+        val matchesArchive =
+          if (showArchivedChats) {
+            contact.id in archivedContactIds
+          } else {
+            contact.id !in archivedContactIds
+          }
+        val matchesQuery =
+          q.isEmpty() ||
+            contact.displayName.lowercase().contains(q) ||
+            contact.formattedPhone.lowercase().contains(q) ||
+            lastMessage.text.lowercase().contains(q)
+        matchesArchive && matchesQuery
+      }
+    }
 }
 
 class ChatsViewModel(
@@ -248,6 +273,33 @@ class ChatsViewModel(
 
   fun updateSearchQuery(query: String) {
     _uiState.update { it.copy(searchQuery = query) }
+  }
+
+  fun updateChatListSearchQuery(query: String) {
+    _uiState.update { it.copy(chatListSearchQuery = query) }
+  }
+
+  fun toggleArchivedFilter(show: Boolean? = null) {
+    _uiState.update { state ->
+      val next = show ?: !state.showArchivedChats
+      state.copy(showArchivedChats = next)
+    }
+  }
+
+  fun toggleArchiveChat(contactId: String) {
+    _uiState.update { state ->
+      val wasArchived = contactId in state.archivedContactIds
+      val updated =
+        if (wasArchived) {
+          state.archivedContactIds - contactId
+        } else {
+          state.archivedContactIds + contactId
+        }
+      state.copy(
+        archivedContactIds = updated,
+        snackbarMessage = if (wasArchived) "Chat unarchived" else "Chat archived",
+      )
+    }
   }
 
   fun updateFirstName(value: String) {
