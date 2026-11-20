@@ -1,10 +1,13 @@
 package com.example.update
 
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,6 +24,7 @@ data class UpdateReleaseInfo(
   val downloadUrl: String,
   val releasePageUrl: String,
   val releaseNotes: String,
+  val signingSha256: String? = null,
 ) {
   val formattedSizeMb: String
     get() = formatSizeInMb(apkSizeBytes)
@@ -208,6 +212,7 @@ fun parseReleaseJson(jsonText: String): UpdateFetchResult {
 
     val (parsedVersionName, parsedBuildNumber) = parseVersionAndBuildFromTag(tagName)
     val parsedVersionCode = parseVersionCodeFromBody(releaseBody)
+    val parsedSigningSha256 = parseSigningSha256FromBody(releaseBody)
 
     UpdateFetchResult.Found(
       UpdateReleaseInfo(
@@ -221,6 +226,7 @@ fun parseReleaseJson(jsonText: String): UpdateFetchResult {
         downloadUrl = chosenApkUrl,
         releasePageUrl = releasePageUrl,
         releaseNotes = releaseBody,
+        signingSha256 = parsedSigningSha256,
       )
     )
   } catch (e: Exception) {
@@ -243,6 +249,32 @@ internal fun parseVersionCodeFromBody(body: String): Int? {
   val match = Regex("""versionCode\s*=\s*([0-9]+)""", RegexOption.IGNORE_CASE).find(body)
   return match?.groupValues?.getOrNull(1)?.toIntOrNull()
 }
+
+internal fun parseSigningSha256FromBody(body: String): String? {
+  val match = Regex("""Signing SHA-256:[\s`*]*([a-fA-F0-9:]{64,95})""", RegexOption.IGNORE_CASE).find(body)
+  return match?.groupValues?.getOrNull(1)?.replace(":", "")?.lowercase(Locale.US)?.takeIf { it.length == 64 }
+}
+
+fun getInstalledSigningSha256(context: Context): String? =
+  runCatching {
+    val pm = context.packageManager
+    val pkgName = context.packageName
+    val certBytes: ByteArray? =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val info = pm.getPackageInfo(pkgName, PackageManager.GET_SIGNING_CERTIFICATES)
+        info.signingInfo?.apkContentsSigners?.firstOrNull()?.toByteArray()
+          ?: info.signingInfo?.signingCertificateHistory?.firstOrNull()?.toByteArray()
+      } else {
+        @Suppress("DEPRECATION")
+        val info = pm.getPackageInfo(pkgName, PackageManager.GET_SIGNATURES)
+        @Suppress("DEPRECATION")
+        info.signatures?.firstOrNull()?.toByteArray()
+      }
+    certBytes?.let { bytes ->
+      val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+      digest.joinToString("") { "%02x".format(it) }
+    }
+  }.getOrNull()
 
 fun isNewerRelease(
   installedVersionName: String,

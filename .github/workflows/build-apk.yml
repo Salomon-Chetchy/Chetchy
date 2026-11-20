@@ -38,10 +38,10 @@ jobs:
         env:
           DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
-          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
-            printf '%s' "$DEBUG_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > debug.keystore
-          elif [ -f debug.keystore.base64 ]; then
+          if [ -f debug.keystore.base64 ]; then
             tr -d '[:space:]' < debug.keystore.base64 | base64 -d > debug.keystore
+          elif [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > debug.keystore
           elif [ ! -f debug.keystore ]; then
             keytool -genkeypair -v \
               -keystore debug.keystore \
@@ -58,15 +58,26 @@ jobs:
       - name: Build Debug APK
         run: gradle assembleDebug -PciBuildNumber=${{ github.run_number }} --no-daemon --stacktrace
 
-      - name: Prepare APK filename
+      - name: Prepare and verify APK metadata
         id: apk_info
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/Chats-debug.apk
-          VERSION_CODE=$(grep -E 'versionCode\s*=' app/build.gradle.kts | head -n1 | grep -oE '[0-9]+')
-          VERSION_NAME=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
-          echo "version_code=${VERSION_CODE:-1}" >> "$GITHUB_OUTPUT"
-          echo "version_name=${VERSION_NAME:-1.0}" >> "$GITHUB_OUTPUT"
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -n1)
+          "$BUILD_TOOLS_DIR/apksigner" verify --print-certs dist/Chats-debug.apk
+          CERT_SHA256=$("$BUILD_TOOLS_DIR/apksigner" verify --print-certs dist/Chats-debug.apk | grep -i 'SHA-256 digest:' | head -n1 | awk -F': ' '{print $2}' | tr -d '[:space:]')
+          BADGING=$("$BUILD_TOOLS_DIR/aapt2" dump badging dist/Chats-debug.apk | head -n1)
+          VERSION_CODE=$(echo "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
+          VERSION_NAME=$(echo "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          PACKAGE_NAME=$(echo "$BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")
+          if [ -z "$CERT_SHA256" ] || [ -z "$VERSION_CODE" ]; then
+            echo "Failed to verify APK signing certificate or versionCode" >&2
+            exit 1
+          fi
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "version_name=${VERSION_NAME:-1.1}" >> "$GITHUB_OUTPUT"
+          echo "package_name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "cert_sha256=${CERT_SHA256}" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -81,5 +92,7 @@ jobs:
           name: Chats v${{ steps.apk_info.outputs.version_name }} (Build ${{ github.run_number }})
           body: |
             Automated APK build for Chats (`versionCode = ${{ steps.apk_info.outputs.version_code }}`).
+            - **Package:** `${{ steps.apk_info.outputs.package_name }}`
+            - **Signing SHA-256:** `${{ steps.apk_info.outputs.cert_sha256 }}`
             Tap **Chats-debug.apk** below on your Android phone to download and install.
           files: dist/Chats-debug.apk

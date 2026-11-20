@@ -82,6 +82,7 @@ import com.example.ui.theme.WhatsAppTextPrimary
 import com.example.ui.theme.WhatsAppTextSecondary
 import com.example.update.UpdateCheckUiState
 import com.example.update.UpdatePreferences
+import com.example.update.getInstalledSigningSha256
 
 private val ErrorCoral = Color(0xFFF28B82)
 private val ErrorSurfaceDark = Color(0xFF2D191B)
@@ -107,6 +108,7 @@ fun SettingsTabContent(
   modifier: Modifier = Modifier,
 ) {
   val context = LocalContext.current
+  val installedCertSha256 = remember(context) { getInstalledSigningSha256(context) }
   var showRepoDialog by remember { mutableStateOf(false) }
   var showEncryptionDialog by remember { mutableStateOf(false) }
   var showPuterTokenDialog by remember { mutableStateOf(false) }
@@ -194,6 +196,7 @@ fun SettingsTabContent(
     // In-App Update Card
     AppUpdatesCard(
       installedVersionName = installedVersionName,
+      installedCertSha256 = installedCertSha256,
       githubRepoSlug = githubRepoSlug,
       updateCheckState = updateCheckState,
       onEditRepoClick = { showRepoDialog = true },
@@ -250,7 +253,14 @@ fun SettingsTabContent(
         SettingsInfoRow(
           icon = LucideIcons.ChatsOutlined,
           title = stringResource(R.string.settings_about_title),
-          subtitle = stringResource(R.string.settings_about_subtitle, BuildConfig.APPLICATION_ID),
+          subtitle =
+            buildString {
+              append(stringResource(R.string.settings_about_subtitle, BuildConfig.APPLICATION_ID))
+              append(" • Code ${BuildConfig.VERSION_CODE}")
+              if (!installedCertSha256.isNullOrBlank()) {
+                append(" • Key ${installedCertSha256.take(8)}…")
+              }
+            },
           onClick = null,
           testTag = "settings_about_row",
         )
@@ -522,6 +532,7 @@ private fun PuterAiSettingsCard(
 @Composable
 private fun AppUpdatesCard(
   installedVersionName: String,
+  installedCertSha256: String?,
   githubRepoSlug: String,
   updateCheckState: UpdateCheckUiState,
   onEditRepoClick: () -> Unit,
@@ -741,6 +752,22 @@ private fun AppUpdatesCard(
                   color = AccentPurpleMuted,
                   modifier = Modifier.testTag("update_size_needed_text"),
                 )
+
+                val releaseSha = release.signingSha256
+                if (!releaseSha.isNullOrBlank() && !installedCertSha256.isNullOrBlank()) {
+                  val certMatches = releaseSha.equals(installedCertSha256, ignoreCase = true)
+                  Text(
+                    text =
+                      if (certMatches) {
+                        "Signing key verified (compatible in-place update)"
+                      } else {
+                        "Signing key differs (${releaseSha.take(8)} vs ${installedCertSha256.take(8)}) — uninstall old app once before installing"
+                      },
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (certMatches) AccentPurpleBright else ErrorCoral,
+                    modifier = Modifier.testTag("update_signature_check_text"),
+                  )
+                }
 
                 if (release.releaseNotes.isNotBlank()) {
                   Text(

@@ -16,10 +16,11 @@ android {
     applicationId = "com.aistudio.chatsdark.xkmqzp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
-
     val ciBuildNumber = providers.gradleProperty("ciBuildNumber").orNull?.toIntOrNull() ?: 0
+    val baseVersionCode = 2
+    versionCode = baseVersionCode + ciBuildNumber
+    versionName = "1.1"
+
     buildConfigField("int", "CI_BUILD_NUMBER", ciBuildNumber.toString())
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

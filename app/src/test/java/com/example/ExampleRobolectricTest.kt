@@ -181,7 +181,7 @@ class ExampleRobolectricTest {
         "tag_name": "v1.0-b5",
         "name": "Chats v1.0 (Build 5)",
         "html_url": "https://github.com/Salomon-Chetchy/Chats/releases/tag/v1.0-b5",
-        "body": "Automated APK build for Chats (`versionCode = 1`).",
+        "body": "Automated APK build for Chats (`versionCode = 7`).\n- **Signing SHA-256:** `d64b2673c8af271f6aa1050c8d6a865e179dfe2c8c0fcef9f505039bb05b09fb`",
         "assets": [
           {
             "name": "Chats-debug.apk",
@@ -198,11 +198,24 @@ class ExampleRobolectricTest {
     assertEquals("14.8 MB", release.formattedSizeMb)
     assertEquals("14.8 MB", formatSizeInMb(15_518_925L))
     assertEquals(5, release.buildNumber)
+    assertEquals(7, release.versionCode)
+    assertEquals(
+      "d64b2673c8af271f6aa1050c8d6a865e179dfe2c8c0fcef9f505039bb05b09fb",
+      release.signingSha256,
+    )
 
     assertTrue(
       isNewerRelease(
         installedVersionName = "1.0",
         installedVersionCode = 1,
+        installedCiBuild = 0,
+        release = release,
+      )
+    )
+    assertTrue(
+      isNewerRelease(
+        installedVersionName = "1.0",
+        installedVersionCode = 7,
         installedCiBuild = 4,
         release = release,
       )
@@ -210,7 +223,7 @@ class ExampleRobolectricTest {
     assertFalse(
       isNewerRelease(
         installedVersionName = "1.0",
-        installedVersionCode = 1,
+        installedVersionCode = 7,
         installedCiBuild = 5,
         release = release,
       )

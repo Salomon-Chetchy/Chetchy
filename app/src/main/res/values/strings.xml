@@ -137,7 +137,7 @@
     <string name="settings_update_size_needed">Download needed: %1$s</string>
     <string name="settings_download_update">Download update (%1$s)</string>
     <string name="settings_view_release_notes">View release on GitHub</string>
-    <string name="settings_install_tip">After the APK finishes downloading, tap it in your browser or notifications to install the update.</string>
+    <string name="settings_install_tip">After downloading, tap Chats-debug.apk to update. If Android shows a package conflict error, uninstall the older Chats app once and install again so future updates share the same signing key.</string>
     <string name="settings_up_to_date">You\'re up to date</string>
     <string name="settings_up_to_date_detail">Version %1$s • Checked at %2$s</string>
     <string name="settings_download_started_snackbar">Opening APK download (%1$s)…</string>
