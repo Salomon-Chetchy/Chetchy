@@ -113,6 +113,8 @@ fun ChatConversationScreen(
   onDismissTooltip: () -> Unit,
   onStartCall: (String) -> Unit,
   onEndCall: () -> Unit,
+  onUpdateGoalProgress: (String, Int) -> Unit,
+  isAiThinking: Boolean = false,
 ) {
   BackHandler(onBack = onBack)
 
@@ -121,9 +123,10 @@ fun ChatConversationScreen(
   var showEmojiStrip by remember { mutableStateOf(false) }
   val listState = rememberLazyListState()
 
-  LaunchedEffect(messages.size) {
-    if (messages.isNotEmpty()) {
-      listState.animateScrollToItem(messages.size + 1)
+  LaunchedEffect(messages.size, isAiThinking) {
+    val targetIndex = messages.size + (if (isAiThinking) 2 else 1)
+    if (messages.isNotEmpty() || isAiThinking) {
+      listState.animateScrollToItem(targetIndex)
     }
   }
 
@@ -139,6 +142,10 @@ fun ChatConversationScreen(
           onHeaderClick = { showContactInfoSheet = true },
           onVideoCallClick = { onStartCall("video") },
           onVoiceCallClick = { onStartCall("voice") },
+        )
+        AiPersonaGoalBanner(
+          contact = contact,
+          onUpdateProgress = { newProg -> onUpdateGoalProgress(contact.id, newProg) },
         )
         AnimatedVisibility(visible = activeCallType != null) {
           if (activeCallType != null) {
@@ -273,6 +280,33 @@ fun ChatConversationScreen(
 
         items(messages, key = { it.id }) { message ->
           ChatBubbleRow(message = message)
+        }
+
+        if (isAiThinking) {
+          item(key = "ai_thinking_indicator") {
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+              horizontalArrangement = Arrangement.Start,
+            ) {
+              Surface(
+                color = WhatsAppSurfaceCard,
+                shape = RoundedCornerShape(
+                  topStart = 4.dp,
+                  topEnd = 14.dp,
+                  bottomStart = 14.dp,
+                  bottomEnd = 14.dp,
+                ),
+                modifier = Modifier.testTag("ai_thinking_bubble"),
+              ) {
+                Text(
+                  text = stringResource(R.string.ai_typing),
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = AccentPurpleMuted,
+                  modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                )
+              }
+            }
+          }
         }
       }
     }
@@ -863,3 +897,87 @@ private fun WhatsAppDarkDoodleWallpaper(modifier: Modifier = Modifier) {
     }
   }
 }
+
+@Composable
+private fun AiPersonaGoalBanner(
+  contact: Contact,
+  onUpdateProgress: (Int) -> Unit,
+) {
+  if (contact.aiIdentity.isBlank() && contact.goalTitle.isNullOrBlank()) return
+
+  Surface(
+    color = WhatsAppSurfaceContainer,
+    modifier = Modifier.fillMaxWidth().testTag("ai_goal_banner"),
+  ) {
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+      verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+      ) {
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          Surface(
+            color = AccentPurple,
+            shape = RoundedCornerShape(50),
+          ) {
+            Text(
+              text = stringResource(R.string.ai_persona_badge),
+              style = MaterialTheme.typography.labelSmall,
+              color = OnAccentPurple,
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+          }
+          Text(
+            text = contact.displayName,
+            style = MaterialTheme.typography.titleSmall,
+            color = WhatsAppTextPrimary,
+          )
+        }
+        if (!contact.goalTitle.isNullOrBlank()) {
+          Text(
+            text = "${contact.goalProgress}%",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = AccentPurpleBright,
+            modifier = Modifier.testTag("goal_progress_text"),
+          )
+        }
+      }
+
+      if (!contact.goalTitle.isNullOrBlank()) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+          Text(
+            text = contact.goalTitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = WhatsAppTextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          TextButton(
+            onClick = { onUpdateProgress(contact.goalProgress + 10) },
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            modifier = Modifier.minimumInteractiveComponentSize().testTag("increment_goal_button"),
+          ) {
+            Text(
+              text = "+10% Progress",
+              style = MaterialTheme.typography.labelSmall,
+              color = AccentPurpleBright,
+            )
+          }
+        }
+      }
+    }
+  }
+}
+

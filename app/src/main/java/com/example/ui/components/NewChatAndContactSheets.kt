@@ -412,6 +412,8 @@ fun NewContactSheetContent(
   onCountryChange: (CountryCodeOption) -> Unit,
   onPhoneChange: (String) -> Unit,
   onSyncChange: (Boolean) -> Unit,
+  onAiIdentityChange: (String) -> Unit,
+  onGoalTitleChange: (String) -> Unit,
   onCancel: () -> Unit,
   onDone: () -> Unit,
 ) {
@@ -570,6 +572,33 @@ fun NewContactSheetContent(
           )
         }
       }
+    }
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    // Group 4: AI Persona & Goal (Optional)
+    Column(
+      modifier =
+        Modifier
+          .fillMaxWidth()
+          .clip(RoundedCornerShape(14.dp))
+          .background(WhatsAppSurfaceCard),
+    ) {
+      PlainCardInputRow(
+        value = draft.aiIdentity,
+        onValueChange = onAiIdentityChange,
+        placeholder = stringResource(R.string.hint_ai_identity),
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+        modifier = Modifier.testTag("ai_identity_input"),
+      )
+      CardHairlineDivider()
+      PlainCardInputRow(
+        value = draft.goalTitle,
+        onValueChange = onGoalTitleChange,
+        placeholder = stringResource(R.string.hint_goal_title),
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+        modifier = Modifier.testTag("goal_title_input"),
+      )
     }
 
     Spacer(modifier = Modifier.height(16.dp))

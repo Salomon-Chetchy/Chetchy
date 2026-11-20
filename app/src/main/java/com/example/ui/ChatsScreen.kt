@@ -52,7 +52,9 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,12 +70,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.BuildConfig
 import com.example.R
+import com.example.ai.PuterPreferences
 import com.example.ui.components.ActiveChatsListContent
 import com.example.ui.components.ChetchyBottomNavigationBar
 import com.example.ui.components.ChetchyNavigationRail
 import com.example.ui.components.ChetchyTopBar
 import com.example.ui.components.NewChatSheetContent
 import com.example.ui.components.NewContactSheetContent
+import com.example.ui.components.PuterAuthTokenDialog
+import com.example.ui.components.PuterConnectPromptDialog
+import com.example.ui.components.PuterWebBridgeHost
 import com.example.ui.components.StartChattingIllustration
 import com.example.ui.icons.LucideIcons
 import com.example.ui.theme.AccentPurple
@@ -94,6 +100,23 @@ fun ChatsScreen(
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
   val context = LocalContext.current
   val snackbarHostState = remember { SnackbarHostState() }
+  var showPuterTokenDialogFromPrompt by remember { mutableStateOf(false) }
+
+  LaunchedEffect(Unit) {
+    val savedModel = PuterPreferences.getSelectedModel(context)
+    val savedToken = PuterPreferences.getAuthToken(context)
+    val savedUser = PuterPreferences.getUsername(context)
+    viewModel.syncPuterPreferences(savedModel, savedToken, savedUser)
+  }
+
+  LaunchedEffect(uiState.puterAuthToken, uiState.puterUsername) {
+    if (uiState.puterAuthToken.isNotBlank()) {
+      PuterPreferences.saveAuthToken(context, uiState.puterAuthToken)
+    }
+    if (!uiState.puterUsername.isNullOrBlank()) {
+      PuterPreferences.saveUsername(context, uiState.puterUsername)
+    }
+  }
 
   val photoPickerLauncher =
     rememberLauncherForActivityResult(
@@ -108,6 +131,8 @@ fun ChatsScreen(
       viewModel.clearSnackbar()
     }
   }
+
+  PuterWebBridgeHost(controller = viewModel.puterBridgeController)
 
   val shareInvite = {
     val sendIntent =
@@ -163,6 +188,8 @@ fun ChatsScreen(
           onDismissTooltip = viewModel::dismissMediaTooltip,
           onStartCall = viewModel::startCall,
           onEndCall = viewModel::endCall,
+          onUpdateGoalProgress = viewModel::updateGoalProgress,
+          isAiThinking = uiState.aiThinkingContactId == activeChatContact.id,
         )
       }
       screenKey.startsWith("channel:") && activeChannel != null -> {
@@ -205,6 +232,10 @@ fun ChatsScreen(
           onSyncSavedRepo = { saved -> viewModel.setGithubRepoSlug(saved, resetStatus = false) },
           onSaveRepo = { updated -> viewModel.setGithubRepoSlug(updated, resetStatus = true) },
           onCheckUpdates = viewModel::checkForUpdates,
+          onSignInWithPuter = { viewModel.puterBridgeController.triggerInteractiveSignIn() },
+          onSavePuterToken = viewModel::setPuterAuthToken,
+          onSelectPuterModel = viewModel::setPuterModel,
+          onDisconnectPuter = viewModel::disconnectPuter,
           onShowSnackbar = viewModel::showSnackbar,
         )
       }
@@ -262,6 +293,8 @@ fun ChatsScreen(
           onCountryChange = viewModel::updateCountry,
           onPhoneChange = viewModel::updatePhone,
           onSyncChange = viewModel::updateSyncToPhone,
+          onAiIdentityChange = viewModel::updateAiIdentity,
+          onGoalTitleChange = viewModel::updateGoalTitle,
           onCancel = viewModel::cancelNewContact,
           onDone = viewModel::saveNewContactAndOpenChat,
         )
@@ -337,6 +370,26 @@ fun ChatsScreen(
     }
     null -> Unit
   }
+
+  if (uiState.showPuterConnectPrompt) {
+    PuterConnectPromptDialog(
+      onDismiss = viewModel::dismissPuterConnectPrompt,
+      onSignInWithPuter = { viewModel.puterBridgeController.triggerInteractiveSignIn() },
+      onEnterTokenClick = { showPuterTokenDialogFromPrompt = true },
+    )
+  }
+
+  if (showPuterTokenDialogFromPrompt) {
+    PuterAuthTokenDialog(
+      currentToken = uiState.puterAuthToken,
+      onDismiss = { showPuterTokenDialogFromPrompt = false },
+      onSaveToken = { token ->
+        PuterPreferences.saveAuthToken(context, token)
+        viewModel.setPuterAuthToken(token)
+        showPuterTokenDialogFromPrompt = false
+      },
+    )
+  }
 }
 
 @Composable
@@ -362,6 +415,10 @@ private fun ChatsHomeContainer(
   onSyncSavedRepo: (String) -> Unit,
   onSaveRepo: (String) -> Unit,
   onCheckUpdates: () -> Unit,
+  onSignInWithPuter: () -> Unit,
+  onSavePuterToken: (String) -> Unit,
+  onSelectPuterModel: (String) -> Unit,
+  onDisconnectPuter: () -> Unit,
   onShowSnackbar: (String) -> Unit,
 ) {
   BackHandler(enabled = uiState.selectedTab != BottomNavTab.CHATS || uiState.showArchivedChats) {
@@ -482,9 +539,17 @@ private fun ChatsHomeContainer(
                   installedBuildNumber = installedBuildNumber,
                   githubRepoSlug = uiState.githubRepoSlug,
                   updateCheckState = uiState.updateCheckState,
+                  puterModelId = uiState.puterModelId,
+                  puterAuthToken = uiState.puterAuthToken,
+                  puterUsername = uiState.puterUsername,
+                  isPuterConnected = uiState.isPuterConnected,
                   onSyncSavedRepo = onSyncSavedRepo,
                   onSaveRepo = onSaveRepo,
                   onCheckUpdates = onCheckUpdates,
+                  onSignInWithPuter = onSignInWithPuter,
+                  onSavePuterToken = onSavePuterToken,
+                  onSelectPuterModel = onSelectPuterModel,
+                  onDisconnectPuter = onDisconnectPuter,
                   onShowSnackbar = onShowSnackbar,
                 )
             }

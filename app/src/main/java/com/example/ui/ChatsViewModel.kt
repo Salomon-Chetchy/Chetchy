@@ -1,9 +1,16 @@
 package com.example.ui
 
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.BuildConfig
+import com.example.ai.HybridPuterAiEngine
+import com.example.ai.PuterAiEngine
+import com.example.ai.PuterAiResult
+import com.example.ai.PuterChatTurn
+import com.example.ai.PuterModels
+import com.example.ai.PuterWebBridgeController
 import com.example.update.AppUpdateClient
 import com.example.update.GitHubAppUpdateClient
 import com.example.update.UpdateCheckUiState
@@ -15,11 +22,15 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+
+private const val TAG = "ChatsViewModel"
 
 enum class BottomNavTab {
   UPDATES,
@@ -54,6 +65,9 @@ data class Contact(
   val phoneNumber: String,
   val syncToPhone: Boolean = false,
   val isSelf: Boolean = false,
+  val aiIdentity: String = "",
+  val goalTitle: String? = null,
+  val goalProgress: Int = 0, // 0 to 100
 ) {
   val displayName: String
     get() =
@@ -111,6 +125,9 @@ data class NewContactDraft(
   val country: CountryCodeOption = DefaultCountries.first(),
   val phone: String = "",
   val syncToPhone: Boolean = false,
+  val aiIdentity: String = "",
+  val goalTitle: String = "",
+  val goalProgress: Int = 0,
 ) {
   val canSave: Boolean
     get() = firstName.isNotBlank() || lastName.isNotBlank() || phone.isNotBlank()
@@ -140,9 +157,55 @@ data class ChatsUiState(
         dialCode = "+1",
         phoneNumber = "",
         isSelf = true,
-      )
+      ),
+      Contact(
+        id = "aria_coach",
+        firstName = "Aria",
+        lastName = "Coach",
+        countryName = "United States",
+        dialCode = "+1",
+        phoneNumber = "5550144",
+        syncToPhone = true,
+        aiIdentity = "You are Aria, an energetic, warm, and highly motivating fitness coach and wellness mentor. Give encouraging advice, action steps, and keep the user accountable to their goal.",
+        goalTitle = "Build consistent morning workout habits",
+        goalProgress = 25,
+      ),
+      Contact(
+        id = "sage_mentor",
+        firstName = "Sage",
+        lastName = "Mentor",
+        countryName = "United Kingdom",
+        dialCode = "+44",
+        phoneNumber = "77009000",
+        syncToPhone = true,
+        aiIdentity = "You are Sage, a wise and empathetic life mentor and productivity expert. Provide structured thinking, thoughtful guidance, and help the user grow.",
+        goalTitle = "Read 12 books and write weekly reflections",
+        goalProgress = 40,
+      ),
     ),
-  val messagesByContact: Map<String, List<ChatMessage>> = emptyMap(),
+  val messagesByContact: Map<String, List<ChatMessage>> =
+    mapOf(
+      "aria_coach" to
+        listOf(
+          ChatMessage(
+            id = "aria_init",
+            contactId = "aria_coach",
+            text = "Hey! I'm Aria, your fitness coach. Ready to crush your workout goal today?",
+            timestampLabel = "9:00 AM",
+            isOutgoing = false,
+          )
+        ),
+      "sage_mentor" to
+        listOf(
+          ChatMessage(
+            id = "sage_init",
+            contactId = "sage_mentor",
+            text = "Greetings. I am Sage. Let's make steady progress on your personal growth goal.",
+            timestampLabel = "9:05 AM",
+            isOutgoing = false,
+          )
+        ),
+    ),
   val activeChatContactId: String? = null,
   val chatInputText: String = "",
   val showMediaTooltip: Boolean = true,
@@ -157,8 +220,16 @@ data class ChatsUiState(
   val showArchivedChats: Boolean = false,
   val githubRepoSlug: String = UpdatePreferences.DEFAULT_REPO_SLUG,
   val updateCheckState: UpdateCheckUiState = UpdateCheckUiState.Idle,
+  val puterModelId: String = PuterModels.DEFAULT_MODEL_ID,
+  val puterAuthToken: String = "",
+  val puterUsername: String? = null,
+  val isPuterWebSignedIn: Boolean = false,
+  val aiThinkingContactId: String? = null,
+  val showPuterConnectPrompt: Boolean = false,
   val snackbarMessage: String? = null,
 ) {
+  val isPuterConnected: Boolean
+    get() = puterAuthToken.isNotBlank() || isPuterWebSignedIn
   val activeChatContact: Contact?
     get() = contacts.find { it.id == activeChatContactId }
 
@@ -213,6 +284,8 @@ class ChatsViewModel(
   private val installedVersionName: String = BuildConfig.VERSION_NAME,
   private val installedVersionCode: Int = BuildConfig.VERSION_CODE,
   private val installedCiBuild: Int = BuildConfig.CI_BUILD_NUMBER,
+  val puterBridgeController: PuterWebBridgeController = PuterWebBridgeController(),
+  private val puterAiEngine: PuterAiEngine = HybridPuterAiEngine(puterBridgeController),
 ) : ViewModel() {
   private val _uiState = MutableStateFlow(ChatsUiState())
   val uiState: StateFlow<ChatsUiState> = _uiState.asStateFlow()
@@ -224,6 +297,80 @@ class ChatsViewModel(
 
   val installedVersionLabel: String
     get() = "v$installedVersionName (Build $installedDisplayBuild)"
+
+  init {
+    puterBridgeController.onAuthStateUpdated = { signedIn, username, token ->
+      updatePuterAuthState(signedIn = signedIn, username = username, token = token)
+    }
+  }
+
+  fun syncPuterPreferences(modelId: String, authToken: String, username: String?) {
+    _uiState.update { state ->
+      state.copy(
+        puterModelId = modelId.ifBlank { PuterModels.DEFAULT_MODEL_ID },
+        puterAuthToken = authToken.trim(),
+        puterUsername = username?.takeIf { it.isNotBlank() } ?: state.puterUsername,
+      )
+    }
+  }
+
+  fun updatePuterAuthState(signedIn: Boolean, username: String?, token: String?) {
+    _uiState.update { state ->
+      val updatedToken = token?.trim()?.takeIf { it.isNotEmpty() } ?: state.puterAuthToken
+      state.copy(
+        isPuterWebSignedIn = signedIn,
+        puterUsername = username?.takeIf { it.isNotBlank() } ?: if (signedIn) state.puterUsername else null,
+        puterAuthToken = updatedToken,
+        showPuterConnectPrompt = if (signedIn) false else state.showPuterConnectPrompt,
+      )
+    }
+  }
+
+  fun setPuterAuthToken(token: String) {
+    val clean = token.trim()
+    _uiState.update {
+      it.copy(
+        puterAuthToken = clean,
+        showPuterConnectPrompt = false,
+        snackbarMessage =
+          if (clean.isNotEmpty()) {
+            "Puter Auth Token saved"
+          } else {
+            "Puter Auth Token cleared"
+          },
+      )
+    }
+  }
+
+  fun setPuterModel(modelId: String) {
+    val option = PuterModels.findById(modelId)
+    _uiState.update {
+      it.copy(
+        puterModelId = option.id,
+        snackbarMessage = "Puter AI model set to ${option.displayName}",
+      )
+    }
+  }
+
+  fun disconnectPuter() {
+    puterBridgeController.triggerSignOut()
+    _uiState.update {
+      it.copy(
+        puterAuthToken = "",
+        puterUsername = null,
+        isPuterWebSignedIn = false,
+        snackbarMessage = "Disconnected from Puter AI",
+      )
+    }
+  }
+
+  fun openPuterConnectPrompt() {
+    _uiState.update { it.copy(showPuterConnectPrompt = true) }
+  }
+
+  fun dismissPuterConnectPrompt() {
+    _uiState.update { it.copy(showPuterConnectPrompt = false) }
+  }
 
   fun selectTab(tab: BottomNavTab) {
     _uiState.update { it.copy(selectedTab = tab) }
@@ -323,6 +470,24 @@ class ChatsViewModel(
     _uiState.update { it.copy(newContactDraft = it.newContactDraft.copy(syncToPhone = sync)) }
   }
 
+  fun updateAiIdentity(value: String) {
+    _uiState.update { it.copy(newContactDraft = it.newContactDraft.copy(aiIdentity = value)) }
+  }
+
+  fun updateGoalTitle(value: String) {
+    _uiState.update { it.copy(newContactDraft = it.newContactDraft.copy(goalTitle = value)) }
+  }
+
+  fun updateGoalProgress(contactId: String, newProgress: Int) {
+    val clamped = newProgress.coerceIn(0, 100)
+    _uiState.update { state ->
+      val updatedContacts = state.contacts.map { c ->
+        if (c.id == contactId) c.copy(goalProgress = clamped) else c
+      }
+      state.copy(contacts = updatedContacts, snackbarMessage = "Goal progress updated to $clamped%")
+    }
+  }
+
   fun saveNewContactAndOpenChat() {
     val draft = _uiState.value.newContactDraft
     if (!draft.canSave) return
@@ -337,6 +502,9 @@ class ChatsViewModel(
         phoneNumber = draft.phone.trim(),
         syncToPhone = draft.syncToPhone,
         isSelf = false,
+        aiIdentity = draft.aiIdentity.trim(),
+        goalTitle = draft.goalTitle.trim().ifEmpty { null },
+        goalProgress = draft.goalProgress.coerceIn(0, 100),
       )
 
     _uiState.update { state ->
@@ -391,7 +559,9 @@ class ChatsViewModel(
     val text = state.chatInputText.trim()
     if (text.isEmpty()) return
 
-    val msg =
+    val contact = state.contacts.find { it.id == contactId } ?: return
+
+    val userMsg =
       ChatMessage(
         id = UUID.randomUUID().toString(),
         contactId = contactId,
@@ -403,9 +573,135 @@ class ChatsViewModel(
     _uiState.update { current ->
       val existing = current.messagesByContact[contactId].orEmpty()
       current.copy(
-        messagesByContact = current.messagesByContact + (contactId to (existing + msg)),
+        messagesByContact = current.messagesByContact + (contactId to (existing + userMsg)),
         chatInputText = "",
       )
+    }
+
+    // If contact has an AI identity, generate Puter AI response
+    if (contact.aiIdentity.isNotBlank()) {
+      viewModelScope.launch {
+        _uiState.update { it.copy(aiThinkingContactId = contactId) }
+        try {
+          val goalContext =
+            if (!contact.goalTitle.isNullOrBlank()) {
+              "\nThe user's active goal with you is: \"${contact.goalTitle}\" (Current progress: ${contact.goalProgress}%). Provide encouraging mentorship, practical next steps, and check in on their goal."
+            } else {
+              ""
+            }
+
+          val systemInstruction =
+            """
+            You are ${contact.displayName}. ${contact.aiIdentity}$goalContext
+            Keep your replies concise, warm, and natural like a real chat message.
+            """.trimIndent()
+
+          val historyTurns =
+            _uiState.value.messagesByContact[contactId].orEmpty().takeLast(12).map { msg ->
+              PuterChatTurn(
+                role = if (msg.isOutgoing) "user" else "assistant",
+                content = msg.text,
+              )
+            }
+
+          val turns = listOf(PuterChatTurn(role = "system", content = systemInstruction)) + historyTurns
+          val currentSnapshot = _uiState.value
+
+          val result =
+            withTimeout(60_000L) {
+              puterAiEngine.generateReply(
+                messages = turns,
+                modelId = currentSnapshot.puterModelId,
+                authToken = currentSnapshot.puterAuthToken,
+              )
+            }
+
+          when (result) {
+            is PuterAiResult.Success -> {
+              val aiMsg =
+                ChatMessage(
+                  id = UUID.randomUUID().toString(),
+                  contactId = contactId,
+                  text = result.replyText,
+                  timestampLabel = timeFormatter.format(Date()),
+                  isOutgoing = false,
+                )
+              _uiState.update { current ->
+                val existing = current.messagesByContact[contactId].orEmpty()
+                current.copy(
+                  messagesByContact = current.messagesByContact + (contactId to (existing + aiMsg)),
+                  aiThinkingContactId =
+                    if (current.aiThinkingContactId == contactId) null else current.aiThinkingContactId,
+                )
+              }
+            }
+            is PuterAiResult.AuthRequired -> {
+              val authMsg =
+                ChatMessage(
+                  id = UUID.randomUUID().toString(),
+                  contactId = contactId,
+                  text = "Puter AI sign-in needed: ${result.message}",
+                  timestampLabel = timeFormatter.format(Date()),
+                  isOutgoing = false,
+                )
+              _uiState.update { current ->
+                val existing = current.messagesByContact[contactId].orEmpty()
+                current.copy(
+                  messagesByContact = current.messagesByContact + (contactId to (existing + authMsg)),
+                  aiThinkingContactId =
+                    if (current.aiThinkingContactId == contactId) null else current.aiThinkingContactId,
+                  showPuterConnectPrompt = true,
+                )
+              }
+            }
+            is PuterAiResult.Error -> {
+              val errorMsg =
+                ChatMessage(
+                  id = UUID.randomUUID().toString(),
+                  contactId = contactId,
+                  text = "Puter AI error: ${result.message}",
+                  timestampLabel = timeFormatter.format(Date()),
+                  isOutgoing = false,
+                )
+              _uiState.update { current ->
+                val existing = current.messagesByContact[contactId].orEmpty()
+                current.copy(
+                  messagesByContact = current.messagesByContact + (contactId to (existing + errorMsg)),
+                  aiThinkingContactId =
+                    if (current.aiThinkingContactId == contactId) null else current.aiThinkingContactId,
+                )
+              }
+            }
+          }
+        } catch (e: TimeoutCancellationException) {
+          Log.e(TAG, "Puter AI generation timed out", e)
+          _uiState.update { current ->
+            current.copy(
+              aiThinkingContactId =
+                if (current.aiThinkingContactId == contactId) null else current.aiThinkingContactId,
+              snackbarMessage = "Puter AI timed out. Please try again.",
+            )
+          }
+        } catch (e: Exception) {
+          Log.e(TAG, "Puter AI generation failed", e)
+          val errorMsg =
+            ChatMessage(
+              id = UUID.randomUUID().toString(),
+              contactId = contactId,
+              text = "Could not reach Puter AI right now (${e.localizedMessage ?: "network error"}).",
+              timestampLabel = timeFormatter.format(Date()),
+              isOutgoing = false,
+            )
+          _uiState.update { current ->
+            val existing = current.messagesByContact[contactId].orEmpty()
+            current.copy(
+              messagesByContact = current.messagesByContact + (contactId to (existing + errorMsg)),
+              aiThinkingContactId =
+                if (current.aiThinkingContactId == contactId) null else current.aiThinkingContactId,
+            )
+          }
+        }
+      }
     }
   }
 

@@ -63,6 +63,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
 import com.example.R
+import com.example.ai.PuterModels
+import com.example.ai.PuterPreferences
+import com.example.ui.components.PuterAuthTokenDialog
+import com.example.ui.components.PuterModelSelectorDialog
 import com.example.ui.icons.LucideIcons
 import com.example.ui.theme.AccentPurple
 import com.example.ui.theme.AccentPurpleBright
@@ -88,15 +92,25 @@ fun SettingsTabContent(
   installedBuildNumber: Int,
   githubRepoSlug: String,
   updateCheckState: UpdateCheckUiState,
+  puterModelId: String,
+  puterAuthToken: String,
+  puterUsername: String?,
+  isPuterConnected: Boolean,
   onSyncSavedRepo: (String) -> Unit,
   onSaveRepo: (String) -> Unit,
   onCheckUpdates: () -> Unit,
+  onSignInWithPuter: () -> Unit,
+  onSavePuterToken: (String) -> Unit,
+  onSelectPuterModel: (String) -> Unit,
+  onDisconnectPuter: () -> Unit,
   onShowSnackbar: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val context = LocalContext.current
   var showRepoDialog by remember { mutableStateOf(false) }
   var showEncryptionDialog by remember { mutableStateOf(false) }
+  var showPuterTokenDialog by remember { mutableStateOf(false) }
+  var showPuterModelDialog by remember { mutableStateOf(false) }
 
   LaunchedEffect(Unit) {
     val saved = UpdatePreferences.getRepoSlug(context)
@@ -161,6 +175,21 @@ fun SettingsTabContent(
         }
       }
     }
+
+    // Puter AI Service Card
+    PuterAiSettingsCard(
+      puterModelId = puterModelId,
+      puterAuthToken = puterAuthToken,
+      puterUsername = puterUsername,
+      isPuterConnected = isPuterConnected,
+      onSignInClick = onSignInWithPuter,
+      onEditTokenClick = { showPuterTokenDialog = true },
+      onEditModelClick = { showPuterModelDialog = true },
+      onDisconnectClick = {
+        PuterPreferences.clearSession(context)
+        onDisconnectPuter()
+      },
+    )
 
     // In-App Update Card
     AppUpdatesCard(
@@ -270,6 +299,223 @@ fun SettingsTabContent(
         }
       },
     )
+  }
+
+  if (showPuterTokenDialog) {
+    PuterAuthTokenDialog(
+      currentToken = puterAuthToken,
+      onDismiss = { showPuterTokenDialog = false },
+      onSaveToken = { token ->
+        PuterPreferences.saveAuthToken(context, token)
+        onSavePuterToken(token)
+        showPuterTokenDialog = false
+      },
+    )
+  }
+
+  if (showPuterModelDialog) {
+    PuterModelSelectorDialog(
+      selectedModelId = puterModelId,
+      onDismiss = { showPuterModelDialog = false },
+      onSelectModel = { modelId ->
+        PuterPreferences.saveSelectedModel(context, modelId)
+        onSelectPuterModel(modelId)
+        showPuterModelDialog = false
+      },
+    )
+  }
+}
+
+@Composable
+private fun PuterAiSettingsCard(
+  puterModelId: String,
+  puterAuthToken: String,
+  puterUsername: String?,
+  isPuterConnected: Boolean,
+  onSignInClick: () -> Unit,
+  onEditTokenClick: () -> Unit,
+  onEditModelClick: () -> Unit,
+  onDisconnectClick: () -> Unit,
+) {
+  val activeModel = PuterModels.findById(puterModelId)
+  val connectionStatusText =
+    when {
+      !puterUsername.isNullOrBlank() ->
+        stringResource(R.string.settings_puter_connected_user, puterUsername)
+      puterAuthToken.isNotBlank() ->
+        stringResource(R.string.settings_puter_connected_token)
+      isPuterConnected ->
+        stringResource(R.string.settings_puter_connected_token)
+      else ->
+        stringResource(R.string.settings_puter_disconnected)
+    }
+
+  Surface(
+    color = WhatsAppSurfaceCard,
+    shape = RoundedCornerShape(18.dp),
+    border = BorderStroke(0.5.dp, WhatsAppOutlineSubtle),
+    modifier = Modifier.fillMaxWidth().testTag("puter_ai_settings_card"),
+  ) {
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(16.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Box(
+          modifier =
+            Modifier
+              .size(40.dp)
+              .clip(CircleShape)
+              .background(AccentPurpleSoftDark),
+          contentAlignment = Alignment.Center,
+        ) {
+          Icon(
+            imageVector = LucideIcons.ChatsFilled,
+            contentDescription = null,
+            tint = AccentPurpleBright,
+            modifier = Modifier.size(20.dp),
+          )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = stringResource(R.string.settings_puter_title),
+            style = MaterialTheme.typography.titleMedium,
+            color = WhatsAppTextPrimary,
+          )
+          Text(
+            text = stringResource(R.string.settings_puter_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = WhatsAppTextSecondary,
+          )
+        }
+        Surface(
+          color = if (isPuterConnected) AccentPurpleSoftDark else WhatsAppSurfaceElevated,
+          shape = RoundedCornerShape(50),
+        ) {
+          Text(
+            text = if (isPuterConnected) "Active" else "Setup",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isPuterConnected) AccentPurpleBright else WhatsAppTextSecondary,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+          )
+        }
+      }
+
+      Text(
+        text = connectionStatusText,
+        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+        color = if (isPuterConnected) AccentPurpleMuted else WhatsAppTextSecondary,
+        modifier = Modifier.testTag("puter_connection_status"),
+      )
+
+      // Active Puter Model Selector Row
+      Surface(
+        color = WhatsAppSurfaceContainer,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+      ) {
+        Row(
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = stringResource(R.string.settings_puter_model_label),
+              style = MaterialTheme.typography.labelSmall,
+              color = WhatsAppTextSecondary,
+            )
+            Text(
+              text = activeModel.displayName,
+              style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+              color = WhatsAppTextPrimary,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.testTag("puter_active_model_value"),
+            )
+          }
+          TextButton(
+            onClick = onEditModelClick,
+            modifier = Modifier.minimumInteractiveComponentSize().testTag("edit_puter_model_button"),
+          ) {
+            Text(
+              text = stringResource(R.string.settings_edit),
+              color = AccentPurpleBright,
+              style = MaterialTheme.typography.labelLarge,
+            )
+          }
+        }
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        Button(
+          onClick = onSignInClick,
+          shape = RoundedCornerShape(50),
+          colors =
+            ButtonDefaults.buttonColors(
+              containerColor = AccentPurple,
+              contentColor = OnAccentPurple,
+            ),
+          contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+          modifier =
+            Modifier
+              .weight(1f)
+              .minimumInteractiveComponentSize()
+              .height(48.dp)
+              .testTag("puter_sign_in_button"),
+        ) {
+          Text(
+            text =
+              if (isPuterConnected) {
+                stringResource(R.string.settings_puter_switch_account)
+              } else {
+                stringResource(R.string.settings_puter_sign_in)
+              },
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+        }
+
+        OutlinedButton(
+          onClick = onEditTokenClick,
+          shape = RoundedCornerShape(50),
+          border = BorderStroke(1.dp, AccentPurple),
+          colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentPurpleBright),
+          contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+          modifier =
+            Modifier
+              .minimumInteractiveComponentSize()
+              .height(48.dp)
+              .testTag("puter_token_button"),
+        ) {
+          Text(
+            text = stringResource(R.string.settings_puter_token_button),
+            style = MaterialTheme.typography.labelLarge,
+          )
+        }
+      }
+
+      if (isPuterConnected) {
+        TextButton(
+          onClick = onDisconnectClick,
+          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+          modifier = Modifier.minimumInteractiveComponentSize().testTag("puter_disconnect_button"),
+        ) {
+          Text(
+            text = stringResource(R.string.settings_puter_sign_out),
+            style = MaterialTheme.typography.labelMedium,
+            color = ErrorCoral,
+          )
+        }
+      }
+    }
   }
 }
 

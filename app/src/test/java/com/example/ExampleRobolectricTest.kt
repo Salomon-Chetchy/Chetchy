@@ -7,8 +7,13 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import com.example.ai.PuterAiEngine
+import com.example.ai.PuterAiResult
+import com.example.ai.PuterChatTurn
+import com.example.ai.parsePuterDriverResponse
 import com.example.ui.ChatsScreen
 import com.example.ui.ChatsViewModel
 import com.example.ui.theme.WhatsAppDarkTheme
@@ -41,7 +46,7 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `chats screen displays exact hero content and navigation tabs`() {
+  fun `chats screen displays AI persona contacts and navigation tabs`() {
     composeTestRule.setContent {
       WhatsAppDarkTheme {
         ChatsScreen(viewModel = ChatsViewModel())
@@ -57,14 +62,8 @@ class ExampleRobolectricTest {
 
     composeTestRule.onNodeWithText("Chetchy").assertIsDisplayed()
     composeTestRule.onNodeWithText("Archived").assertIsDisplayed()
-    assertEquals(1, composeTestRule.onAllNodesWithText("Chats").fetchSemanticsNodes().size)
-    assertEquals(2, composeTestRule.onAllNodesWithText("Start chatting").fetchSemanticsNodes().size)
-
-    composeTestRule
-      .onNodeWithText("Message privately with your contacts, no matter what device they use.")
-      .assertIsDisplayed()
-    composeTestRule.onNodeWithTag("start_chatting_button").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("invite_friend_button").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Aria Coach").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Sage Mentor").assertIsDisplayed()
 
     composeTestRule.onNodeWithTag("nav_chats").assertIsDisplayed()
     composeTestRule.onNodeWithTag("nav_calls").assertIsDisplayed()
@@ -82,8 +81,8 @@ class ExampleRobolectricTest {
     }
     composeTestRule.waitForIdle()
 
-    // Open New chat sheet
-    composeTestRule.onNodeWithTag("start_chatting_button").performClick()
+    // Open New chat sheet via FAB
+    composeTestRule.onNodeWithTag("new_chat_plus_button").performClick()
     composeTestRule.mainClock.advanceTimeBy(500L)
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("new_chat_search_input").assertIsDisplayed()
@@ -259,15 +258,15 @@ class ExampleRobolectricTest {
     composeTestRule.mainClock.advanceTimeBy(300L)
     composeTestRule.waitForIdle()
 
-    composeTestRule.onNodeWithTag("app_updates_card").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("check_updates_button").performClick()
+    composeTestRule.onNodeWithTag("app_updates_card").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithTag("check_updates_button").performScrollTo().performClick()
     composeTestRule.mainClock.advanceTimeBy(400L)
     composeTestRule.waitForIdle()
 
-    composeTestRule.onNodeWithTag("update_available_banner").assertIsDisplayed()
-    composeTestRule.onNodeWithText("Update available: v1.1 (Build 5)").assertIsDisplayed()
-    composeTestRule.onNodeWithText("Download needed: 14.8 MB").assertIsDisplayed()
-    composeTestRule.onNodeWithText("Download update (14.8 MB)").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("update_available_banner").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithText("Update available: v1.1 (Build 5)").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithText("Download needed: 14.8 MB").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithText("Download update (14.8 MB)").performScrollTo().assertIsDisplayed()
   }
 
   @Test
@@ -311,11 +310,114 @@ class ExampleRobolectricTest {
     composeTestRule.mainClock.advanceTimeBy(300L)
     composeTestRule.waitForIdle()
 
-    composeTestRule.onNodeWithTag("check_updates_button").performClick()
+    composeTestRule.onNodeWithTag("check_updates_button").performScrollTo().performClick()
     composeTestRule.mainClock.advanceTimeBy(400L)
     composeTestRule.waitForIdle()
 
-    composeTestRule.onNodeWithTag("update_up_to_date_banner").assertIsDisplayed()
-    composeTestRule.onNodeWithText("You're up to date").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("update_up_to_date_banner").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithText("You're up to date").performScrollTo().assertIsDisplayed()
+  }
+
+  @Test
+  fun `puter driver json parser handles success choices and auth failure`() {
+    val successJson =
+      """
+      {
+        "success": true,
+        "result": {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Let's crush your 20 minute morning run!"
+          }
+        }
+      }
+      """.trimIndent()
+    val parsedSuccess = parsePuterDriverResponse(successJson)
+    assertTrue(parsedSuccess is PuterAiResult.Success)
+    assertEquals(
+      "Let's crush your 20 minute morning run!",
+      (parsedSuccess as PuterAiResult.Success).replyText,
+    )
+
+    val authJson =
+      """
+      {
+        "success": false,
+        "error": {
+          "message": "Authentication token invalid"
+        }
+      }
+      """.trimIndent()
+    val parsedAuth = parsePuterDriverResponse(authJson)
+    assertTrue(parsedAuth is PuterAiResult.AuthRequired)
+  }
+
+  @Test
+  fun `ai persona chat sends prompt through PuterAiEngine and renders reply`() {
+    var capturedModel: String? = null
+    var capturedTurns: List<PuterChatTurn> = emptyList()
+    val fakePuterEngine =
+      object : PuterAiEngine {
+        override suspend fun generateReply(
+          messages: List<PuterChatTurn>,
+          modelId: String,
+          authToken: String?,
+        ): PuterAiResult {
+          capturedModel = modelId
+          capturedTurns = messages
+          return PuterAiResult.Success("Awesome! Let's log your 15-minute stretch right now.")
+        }
+      }
+
+    val vm = ChatsViewModel(puterAiEngine = fakePuterEngine)
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = vm)
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    // Open Aria Coach conversation
+    composeTestRule.onNodeWithText("Aria Coach").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("ai_goal_banner").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("chat_message_input").performTextInput("Ready for my morning workout!")
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("chat_send_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithText("Awesome! Let's log your 15-minute stretch right now.").assertIsDisplayed()
+    assertEquals("gpt-4o-mini", capturedModel)
+    assertTrue(capturedTurns.any { it.role == "system" && it.content.contains("Aria Coach") })
+  }
+
+  @Test
+  fun `settings tab displays Puter AI service card and allows model switching`() {
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = ChatsViewModel())
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("nav_settings").performClick()
+    composeTestRule.mainClock.advanceTimeBy(300L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("puter_ai_settings_card").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("puter_active_model_value").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("edit_puter_model_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(300L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("puter_model_option_gpt-5-nano").performClick()
+    composeTestRule.mainClock.advanceTimeBy(300L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithText("GPT-5 Nano").assertIsDisplayed()
   }
 }

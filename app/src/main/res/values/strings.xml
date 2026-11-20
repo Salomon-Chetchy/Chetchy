@@ -147,4 +147,28 @@
     <string name="settings_appearance_subtitle">WhatsApp Dark • Purple accent (#7F46B8)</string>
     <string name="settings_about_title">About Chats</string>
     <string name="settings_about_subtitle">Package %1$s</string>
+    <string name="ai_persona_badge">AI Persona</string>
+    <string name="goal_label">Goal: %1$s (%2$d%%)</string>
+    <string name="ai_typing">AI is thinking…</string>
+    <string name="hint_ai_identity">AI Persona Personality / System Prompt</string>
+    <string name="hint_goal_title">Goal (optional, e.g. Learn Spanish)</string>
+
+    <!-- Puter AI Service -->
+    <string name="settings_puter_title">Puter AI service</string>
+    <string name="settings_puter_subtitle">Free &amp; user-pays AI powered by Puter.js</string>
+    <string name="settings_puter_connected_user">Connected as @%1$s</string>
+    <string name="settings_puter_connected_token">Connected via Puter Auth Token</string>
+    <string name="settings_puter_disconnected">Not connected yet</string>
+    <string name="settings_puter_model_label">Active AI model</string>
+    <string name="settings_puter_sign_in">Sign in with Puter</string>
+    <string name="settings_puter_switch_account">Reconnect Puter</string>
+    <string name="settings_puter_token_button">Auth Token</string>
+    <string name="settings_puter_sign_out">Disconnect</string>
+    <string name="puter_auth_dialog_title">Connect Puter Account</string>
+    <string name="puter_token_dialog_title">Puter Auth Token</string>
+    <string name="puter_token_dialog_hint">Paste an API token from puter.com/dashboard#account (optional if you sign in directly with Puter).</string>
+    <string name="puter_token_placeholder">Paste Puter auth token…</string>
+    <string name="puter_model_dialog_title">Choose Puter AI Model</string>
+    <string name="puter_connect_prompt_title">Connect Puter AI</string>
+    <string name="puter_connect_prompt_body">Sign in with your free Puter account or paste a Puter Auth Token to chat with AI personas.</string>
 </resources>
