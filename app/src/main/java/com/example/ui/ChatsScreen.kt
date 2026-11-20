@@ -190,6 +190,10 @@ fun ChatsScreen(
           onEndCall = viewModel::endCall,
           onUpdateGoalProgress = viewModel::updateGoalProgress,
           isAiThinking = uiState.aiThinkingContactId == activeChatContact.id,
+          replyingToMessage = uiState.replyingToMessage,
+          onReplyToMessage = viewModel::startReplyingTo,
+          onCancelReply = viewModel::cancelReply,
+          onClearChat = viewModel::clearActiveChat,
         )
       }
       screenKey.startsWith("channel:") && activeChannel != null -> {

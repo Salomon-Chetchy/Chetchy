@@ -383,7 +383,7 @@ class ExampleRobolectricTest {
     composeTestRule.mainClock.advanceTimeBy(400L)
     composeTestRule.waitForIdle()
 
-    composeTestRule.onNodeWithTag("ai_goal_banner").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("ai_goal_banner").assertDoesNotExist()
     composeTestRule.onNodeWithTag("chat_message_input").performTextInput("Ready for my morning workout!")
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("chat_send_button").performClick()
@@ -419,5 +419,78 @@ class ExampleRobolectricTest {
     composeTestRule.waitForIdle()
 
     composeTestRule.onNodeWithText("GPT-5 Nano").assertIsDisplayed()
+  }
+
+  @Test
+  fun `chat screen supports quoted reply preview and renders reply inside sent bubble`() {
+    val fakePuterEngine =
+      object : PuterAiEngine {
+        override suspend fun generateReply(
+          messages: List<PuterChatTurn>,
+          modelId: String,
+          authToken: String?,
+        ): PuterAiResult = PuterAiResult.Success("Got your reply!")
+      }
+
+    val vm = ChatsViewModel(puterAiEngine = fakePuterEngine)
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = vm)
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    // Open Aria Coach conversation
+    composeTestRule.onNodeWithText("Aria Coach").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    // Tap initial incoming message bubble and choose Reply
+    composeTestRule
+      .onNodeWithText("Hey! I'm Aria, your fitness coach. Ready to crush your workout goal today?")
+      .performClick()
+    composeTestRule.mainClock.advanceTimeBy(200L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithText("Reply").performClick()
+    composeTestRule.mainClock.advanceTimeBy(200L)
+    composeTestRule.waitForIdle()
+
+    // Send reply message
+    composeTestRule.onNodeWithTag("chat_message_input").performTextInput("Yes, let's start!")
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("chat_send_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithText("Yes, let's start!").assertIsDisplayed()
+    assertTrue(
+      composeTestRule
+        .onAllNodesWithText("Hey! I'm Aria, your fitness coach. Ready to crush your workout goal today?")
+        .fetchSemanticsNodes()
+        .size >= 2
+    )
+  }
+
+  @Test
+  fun `chat screen mic button sends voice note bubble with waveform and duration`() {
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = ChatsViewModel())
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    // Open Aria Coach conversation
+    composeTestRule.onNodeWithText("Aria Coach").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    // Tap floating mic button to send a voice note
+    composeTestRule.onNodeWithTag("chat_mic_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(300L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithText("0:06").assertIsDisplayed()
   }
 }

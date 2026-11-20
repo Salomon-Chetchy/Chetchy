@@ -95,6 +95,8 @@ data class ChatMessage(
   val timestampLabel: String,
   val isOutgoing: Boolean = true,
   val mediaLabel: String? = null,
+  val replyToSender: String? = null,
+  val replyToText: String? = null,
 )
 
 data class StatusUpdate(
@@ -226,6 +228,7 @@ data class ChatsUiState(
   val isPuterWebSignedIn: Boolean = false,
   val aiThinkingContactId: String? = null,
   val showPuterConnectPrompt: Boolean = false,
+  val replyingToMessage: ChatMessage? = null,
   val snackbarMessage: String? = null,
 ) {
   val isPuterConnected: Boolean
@@ -541,6 +544,26 @@ class ChatsViewModel(
         activeChatContactId = null,
         chatInputText = "",
         activeCallType = null,
+        replyingToMessage = null,
+      )
+    }
+  }
+
+  fun startReplyingTo(message: ChatMessage) {
+    _uiState.update { it.copy(replyingToMessage = message) }
+  }
+
+  fun cancelReply() {
+    _uiState.update { it.copy(replyingToMessage = null) }
+  }
+
+  fun clearActiveChat() {
+    val contactId = _uiState.value.activeChatContactId ?: return
+    _uiState.update { current ->
+      current.copy(
+        messagesByContact = current.messagesByContact - contactId,
+        replyingToMessage = null,
+        snackbarMessage = "Chat cleared",
       )
     }
   }
@@ -560,6 +583,7 @@ class ChatsViewModel(
     if (text.isEmpty()) return
 
     val contact = state.contacts.find { it.id == contactId } ?: return
+    val replyingTo = state.replyingToMessage
 
     val userMsg =
       ChatMessage(
@@ -568,6 +592,9 @@ class ChatsViewModel(
         text = text,
         timestampLabel = timeFormatter.format(Date()),
         isOutgoing = true,
+        replyToSender =
+          replyingTo?.let { if (it.isOutgoing) "You" else contact.displayName },
+        replyToText = replyingTo?.text,
       )
 
     _uiState.update { current ->
@@ -575,6 +602,7 @@ class ChatsViewModel(
       current.copy(
         messagesByContact = current.messagesByContact + (contactId to (existing + userMsg)),
         chatInputText = "",
+        replyingToMessage = null,
       )
     }
 

@@ -1204,6 +1204,122 @@ object LucideIcons {
     }
   }
 
+  // Lucide: arrow-left
+  val ArrowLeft: ImageVector by lazy {
+    lucideIcon("ArrowLeft") {
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 2.1f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(19f, 12f)
+        horizontalLineTo(5f)
+        moveTo(12f, 19f)
+        lineTo(5f, 12f)
+        lineTo(12f, 5f)
+      }
+    }
+  }
+
+  // Lucide: paperclip
+  val Paperclip: ImageVector by lazy {
+    lucideIcon("Paperclip") {
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.9f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(21.44f, 11.05f)
+        lineTo(12.25f, 20.24f)
+        arcTo(6f, 6f, 0f, false, true, 3.76f, 11.75f)
+        lineTo(12.95f, 2.56f)
+        arcTo(4f, 4f, 0f, false, true, 18.61f, 8.22f)
+        lineTo(9.41f, 17.41f)
+        arcTo(2f, 2f, 0f, false, true, 6.59f, 14.59f)
+        lineTo(15.07f, 6.1f)
+      }
+    }
+  }
+
+  // Lucide: chevrons-down
+  val ChevronsDown: ImageVector by lazy {
+    lucideIcon("ChevronsDown") {
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 2f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(7f, 6f)
+        lineTo(12f, 11f)
+        lineTo(17f, 6f)
+        moveTo(7f, 13f)
+        lineTo(12f, 18f)
+        lineTo(17f, 13f)
+      }
+    }
+  }
+
+  // Lucide: play (filled)
+  val Play: ImageVector by lazy {
+    lucideIcon("Play") {
+      path(
+        fill = SolidColor(Color.Black),
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.5f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(6f, 4f)
+        lineTo(20f, 12f)
+        lineTo(6f, 20f)
+        close()
+      }
+    }
+  }
+
+  // Lucide: pause (filled)
+  val Pause: ImageVector by lazy {
+    lucideIcon("Pause") {
+      path(
+        fill = SolidColor(Color.Black),
+      ) {
+        moveTo(6f, 4f)
+        horizontalLineTo(10f)
+        verticalLineTo(20f)
+        horizontalLineTo(6f)
+        close()
+        moveTo(14f, 4f)
+        horizontalLineTo(18f)
+        verticalLineTo(20f)
+        horizontalLineTo(14f)
+        close()
+      }
+    }
+  }
+
+  // Lucide: reply
+  val Reply: ImageVector by lazy {
+    lucideIcon("Reply") {
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 2f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(9f, 17f)
+        lineTo(4f, 12f)
+        lineTo(9f, 7f)
+        moveTo(4f, 12f)
+        horizontalLineTo(14.5f)
+        arcTo(5.5f, 5.5f, 0f, false, true, 20f, 17.5f)
+        verticalLineTo(18f)
+      }
+    }
+  }
+
   private inline fun lucideIcon(
     name: String,
     block: ImageVector.Builder.() -> Unit,
