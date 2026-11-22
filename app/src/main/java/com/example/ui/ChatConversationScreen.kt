@@ -94,6 +94,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.ui.components.parseChatMarkdown
+import com.example.ui.components.stripChatMarkdown
 import com.example.ui.icons.LucideIcons
 import com.example.ui.theme.AccentPurple
 import com.example.ui.theme.AccentPurpleBright
@@ -950,7 +952,7 @@ private fun ChatBubbleRow(
                     overflow = TextOverflow.Ellipsis,
                   )
                   Text(
-                    text = message.replyToText,
+                    text = stripChatMarkdown(message.replyToText),
                     style = MaterialTheme.typography.bodySmall,
                     color = WhatsAppTextSecondary,
                     maxLines = 1,
@@ -985,32 +987,44 @@ private fun ChatBubbleRow(
               )
             }
             BubbleMetaRow(message = message, modifier = Modifier.align(Alignment.End).padding(top = 2.dp))
-          } else if (message.text.length <= 26 && !message.text.contains('\n')) {
-            // Short single-line message: inline timestamp + double checkmarks right next to text
-            FlowRow(
-              horizontalArrangement = Arrangement.spacedBy(8.dp),
-              verticalArrangement = Arrangement.Bottom,
-            ) {
+          } else {
+            val formattedText =
+              remember(message.text, message.isOutgoing) {
+                parseChatMarkdown(
+                  rawText = message.text,
+                  codeBackground = Color.Black.copy(alpha = 0.28f),
+                  codeTextColor = AccentPurpleMuted,
+                  accentColor = if (message.isOutgoing) OnAccentPurple else AccentPurpleBright,
+                  quoteColor = WhatsAppTextSecondary,
+                )
+              }
+            if (formattedText.text.length <= 26 && !formattedText.text.contains('\n')) {
+              // Short single-line message: inline timestamp + double checkmarks right next to text
+              FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.Bottom,
+              ) {
+                Text(
+                  text = formattedText,
+                  style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
+                  color = WhatsAppTextPrimary,
+                )
+                BubbleMetaRow(
+                  message = message,
+                  modifier = Modifier.align(Alignment.Bottom).padding(top = 4.dp),
+                )
+              }
+            } else {
               Text(
-                text = message.text,
-                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
+                text = formattedText,
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp),
                 color = WhatsAppTextPrimary,
               )
               BubbleMetaRow(
                 message = message,
-                modifier = Modifier.align(Alignment.Bottom).padding(top = 4.dp),
+                modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
               )
             }
-          } else {
-            Text(
-              text = message.text,
-              style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp),
-              color = WhatsAppTextPrimary,
-            )
-            BubbleMetaRow(
-              message = message,
-              modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
-            )
           }
         }
       }
@@ -1223,7 +1237,7 @@ private fun ReplyComposerPreview(
           overflow = TextOverflow.Ellipsis,
         )
         Text(
-          text = message.text,
+          text = stripChatMarkdown(message.text),
           style = MaterialTheme.typography.bodySmall,
           color = WhatsAppTextSecondary,
           maxLines = 1,

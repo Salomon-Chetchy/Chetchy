@@ -501,7 +501,7 @@ fun ActiveChatsListContent(
                   Spacer(modifier = Modifier.width(4.dp))
                 }
                 Text(
-                  text = lastMessage.text,
+                  text = stripChatMarkdown(lastMessage.text).replace('\n', ' '),
                   style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.5.sp),
                   color = WhatsAppTextSecondary,
                   maxLines = 1,

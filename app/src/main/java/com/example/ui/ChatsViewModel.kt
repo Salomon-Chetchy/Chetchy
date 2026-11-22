@@ -622,6 +622,7 @@ class ChatsViewModel(
             """
             You are ${contact.displayName}. ${contact.aiIdentity}$goalContext
             Keep your replies concise, warm, and natural like a real chat message.
+            When helpful for clarity or emphasis, you may format text with **bold**, *italic*, ~~strikethrough~~, `inline code`, code blocks, > quotes, or bullet/numbered lists.
             """.trimIndent()
 
           val historyTurns =

@@ -9,6 +9,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.test.core.app.ApplicationProvider
 import com.example.ai.PuterAiEngine
 import com.example.ai.PuterAiResult
@@ -16,6 +20,7 @@ import com.example.ai.PuterChatTurn
 import com.example.ai.parsePuterDriverResponse
 import com.example.ui.ChatsScreen
 import com.example.ui.ChatsViewModel
+import com.example.ui.components.parseChatMarkdown
 import com.example.ui.theme.WhatsAppDarkTheme
 import com.example.update.AppUpdateClient
 import com.example.update.UpdateFetchResult
@@ -505,5 +510,69 @@ class ExampleRobolectricTest {
     composeTestRule.waitForIdle()
 
     composeTestRule.onNodeWithText("0:06").assertIsDisplayed()
+  }
+
+  @Test
+  fun `parseChatMarkdown styles bold italic strikethrough code lists quotes and keeps snake_case`() {
+    val input =
+      """
+      # Focus Plan
+      **Bold** *Italic* ***Both*** ~~Old~~ `cmd()` [Docs](https://example.com) snake_case
+      - First item
+      > Stay steady
+      """.trimIndent()
+
+    val annotated = parseChatMarkdown(input)
+    val plain = annotated.text
+
+    assertTrue(plain.contains("Focus Plan"))
+    assertTrue(plain.contains("Bold Italic Both Old"))
+    assertTrue(plain.contains("cmd()"))
+    assertTrue(plain.contains("Docs"))
+    assertTrue(plain.contains("snake_case"))
+    assertTrue(plain.contains("• First item"))
+    assertTrue(plain.contains("│ Stay steady"))
+    assertFalse(plain.contains("**"))
+    assertFalse(plain.contains("~~"))
+    assertFalse(plain.contains("https://example.com"))
+
+    assertTrue(annotated.spanStyles.any { it.item.fontWeight == FontWeight.Bold })
+    assertTrue(annotated.spanStyles.any { it.item.fontStyle == FontStyle.Italic })
+    assertTrue(annotated.spanStyles.any { it.item.textDecoration == TextDecoration.LineThrough })
+    assertTrue(annotated.spanStyles.any { it.item.fontFamily == FontFamily.Monospace })
+    assertTrue(annotated.spanStyles.any { it.item.textDecoration == TextDecoration.Underline })
+  }
+
+  @Test
+  fun `ai reply with bold and bullet markdown renders formatted text without raw markers`() {
+    val fakePuterEngine =
+      object : PuterAiEngine {
+        override suspend fun generateReply(
+          messages: List<PuterChatTurn>,
+          modelId: String,
+          authToken: String?,
+        ): PuterAiResult =
+          PuterAiResult.Success("**Great job!** Try *3 sets* today:\n- Warm up")
+      }
+
+    val vm = ChatsViewModel(puterAiEngine = fakePuterEngine)
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = vm)
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithText("Aria Coach").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("chat_message_input").performTextInput("What should I do?")
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("chat_send_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithText("Great job! Try 3 sets today:\n• Warm up").assertIsDisplayed()
   }
 }
