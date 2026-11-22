@@ -622,7 +622,8 @@ class ChatsViewModel(
             """
             You are ${contact.displayName}. ${contact.aiIdentity}$goalContext
             Keep your replies concise, warm, and natural like a real chat message.
-            When helpful for clarity or emphasis, you may format text with **bold**, *italic*, ~~strikethrough~~, `inline code`, code blocks, > quotes, or bullet/numbered lists.
+            When helpful for clarity or emphasis, format text with **bold**, *italic*, ~~strikethrough~~, `inline code`, > quotes, or bullet/numbered lists.
+            Whenever sharing multi-line code or commands, wrap them in fenced Markdown code blocks with the language name (for example ```python or ```kotlin).
             """.trimIndent()
 
           val historyTurns =

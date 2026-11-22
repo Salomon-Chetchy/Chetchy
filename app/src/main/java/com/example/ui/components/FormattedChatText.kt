@@ -11,6 +11,103 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.sp
 
+sealed interface ChatMarkdownBlock {
+  data class Text(val markdown: String) : ChatMarkdownBlock
+
+  data class Code(
+    val language: String,
+    val code: String,
+  ) : ChatMarkdownBlock
+}
+
+/**
+ * Splits a chat message into rich markdown prose segments and fenced ```code``` blocks
+ * so code blocks can be rendered in ChatGPT-style cards with header, copy action,
+ * horizontal scrolling, and syntax color highlighting.
+ */
+fun splitChatMarkdownBlocks(rawText: String): List<ChatMarkdownBlock> {
+  if (rawText.isEmpty()) return emptyList()
+
+  val normalized = rawText.replace("\r\n", "\n")
+  val lines = normalized.split("\n")
+  val blocks = mutableListOf<ChatMarkdownBlock>()
+  val textBuffer = mutableListOf<String>()
+
+  fun flushTextBuffer() {
+    if (textBuffer.isEmpty()) return
+    // Trim leading/trailing blank separator lines introduced around fenced code blocks
+    var start = 0
+    var end = textBuffer.size
+    while (start < end && textBuffer[start].isBlank()) start++
+    while (end > start && textBuffer[end - 1].isBlank()) end--
+    if (start < end) {
+      blocks += ChatMarkdownBlock.Text(textBuffer.subList(start, end).joinToString("\n"))
+    }
+    textBuffer.clear()
+  }
+
+  var i = 0
+  while (i < lines.size) {
+    val line = lines[i]
+    val trimmedStart = line.trimStart()
+
+    if (trimmedStart.startsWith("```")) {
+      flushTextBuffer()
+      val afterFence = trimmedStart.removePrefix("```")
+      // Support single-line fenced blocks like ```kotlin val x = 1```
+      val inlineCloseIdx = afterFence.indexOf("```")
+      if (inlineCloseIdx >= 0) {
+        val inside = afterFence.substring(0, inlineCloseIdx).trim()
+        val firstSpace = inside.indexOf(' ')
+        val language: String
+        val codeBody: String
+        if (firstSpace > 0 && inside.substring(0, firstSpace).all { it.isLetterOrDigit() || it in charArrayOf('+', '-', '#', '_') }) {
+          language = inside.substring(0, firstSpace).lowercase()
+          codeBody = inside.substring(firstSpace + 1).trimStart()
+        } else {
+          language = ""
+          codeBody = inside
+        }
+        if (codeBody.isNotEmpty()) {
+          blocks += ChatMarkdownBlock.Code(language = language, code = codeBody)
+        }
+        val remainder = afterFence.substring(inlineCloseIdx + 3).trim()
+        if (remainder.isNotEmpty()) {
+          textBuffer += remainder
+        }
+        i++
+        continue
+      }
+
+      val language = afterFence.trim().lowercase()
+      val codeLines = mutableListOf<String>()
+      i++
+      while (i < lines.size && !lines[i].trimStart().startsWith("```")) {
+        codeLines += lines[i]
+        i++
+      }
+      // Drop trailing empty lines inside fence while keeping intentional code indentation
+      while (codeLines.isNotEmpty() && codeLines.last().isBlank()) {
+        codeLines.removeAt(codeLines.lastIndex)
+      }
+      val codeBody = codeLines.joinToString("\n")
+      if (codeBody.isNotEmpty()) {
+        blocks += ChatMarkdownBlock.Code(language = language, code = codeBody)
+      }
+      if (i < lines.size && lines[i].trimStart().startsWith("```")) {
+        i++
+      }
+      continue
+    }
+
+    textBuffer += line
+    i++
+  }
+
+  flushTextBuffer()
+  return blocks
+}
+
 /**
  * Parses Markdown and chat formatting into a Compose [AnnotatedString] so AI personas
  * and users can write in **bold**, *italic*, ***bold italic***, ~~strikethrough~~,
@@ -19,7 +116,7 @@ import androidx.compose.ui.unit.sp
 fun parseChatMarkdown(
   rawText: String,
   codeBackground: Color = Color(0x40000000),
-  codeTextColor: Color = Color(0xFFD6B9FF),
+  codeTextColor: Color = Color(0xFFE2C6FF),
   accentColor: Color = Color(0xFFB687EB),
   quoteColor: Color = Color(0xFFB3BFC7),
 ): AnnotatedString {
@@ -46,6 +143,7 @@ fun parseChatMarkdown(
       // Fenced code block ```...```
       if (trimmedStart.startsWith("```")) {
         appendLineBreakIfNeeded()
+        val language = trimmedStart.removePrefix("```").trim()
         val codeLines = mutableListOf<String>()
         i++
         while (i < lines.size && !lines[i].trimStart().startsWith("```")) {
@@ -57,12 +155,11 @@ fun parseChatMarkdown(
           withStyle(
             SpanStyle(
               fontFamily = FontFamily.Monospace,
-              fontSize = 13.5.sp,
+              fontSize = 13.sp,
               background = codeBackground,
-              color = codeTextColor,
             )
           ) {
-            append(codeBody)
+            append(highlightCodeSyntax(code = codeBody, language = language))
           }
         }
         i++
@@ -71,12 +168,27 @@ fun parseChatMarkdown(
 
       appendLineBreakIfNeeded()
 
-      // Headings (#, ##, ###)
-      val headingMatch = Regex("""^(#{1,3})\s+(.+)$""").find(trimmedStart)
+      // Horizontal rule (--- or ***)
+      if (Regex("""^([-*_])\1{2,}\s*$""").matches(trimmedStart)) {
+        withStyle(SpanStyle(color = quoteColor.copy(alpha = 0.55f))) {
+          append("──────────")
+        }
+        i++
+        continue
+      }
+
+      // Headings (#, ##, ###, ####)
+      val headingMatch = Regex("""^(#{1,4})\s+(.+)$""").find(trimmedStart)
       if (headingMatch != null) {
         val level = headingMatch.groupValues[1].length
         val content = headingMatch.groupValues[2]
-        val sizeSp = if (level == 1) 17.sp else if (level == 2) 16.sp else 15.5.sp
+        val sizeSp =
+          when (level) {
+            1 -> 17.sp
+            2 -> 16.sp
+            3 -> 15.5.sp
+            else -> 15.sp
+          }
         withStyle(
           SpanStyle(
             fontWeight = FontWeight.Bold,

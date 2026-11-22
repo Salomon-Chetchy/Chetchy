@@ -81,6 +81,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -94,7 +95,11 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.ui.components.ChatMarkdownBlock
+import com.example.ui.components.RichChatMessageContent
+import com.example.ui.components.copyTextToClipboard
 import com.example.ui.components.parseChatMarkdown
+import com.example.ui.components.splitChatMarkdownBlocks
 import com.example.ui.components.stripChatMarkdown
 import com.example.ui.icons.LucideIcons
 import com.example.ui.theme.AccentPurple
@@ -885,9 +890,13 @@ private fun ChatBubbleRow(
   isFirstInGroup: Boolean,
   onReply: () -> Unit,
 ) {
+  val context = LocalContext.current
   val density = LocalDensity.current
   val bubbleShape = remember(message.isOutgoing, isFirstInGroup, density) {
     bubbleTailShape(isOutgoing = message.isOutgoing, hasTail = isFirstInGroup, density = density)
+  }
+  val hasCodeBlock = remember(message.text) {
+    splitChatMarkdownBlocks(message.text).any { it is ChatMarkdownBlock.Code }
   }
   val tailInsetStart = if (!message.isOutgoing && isFirstInGroup) 8.dp else 0.dp
   val tailInsetEnd = if (message.isOutgoing && isFirstInGroup) 8.dp else 0.dp
@@ -910,7 +919,7 @@ private fun ChatBubbleRow(
         shadowElevation = 0.5.dp,
         modifier =
           Modifier
-            .widthIn(max = 300.dp)
+            .widthIn(max = if (hasCodeBlock) 340.dp else 300.dp)
             .clip(bubbleShape)
             .combinedClickable(
               onClick = { showBubbleActions = true },
@@ -987,12 +996,12 @@ private fun ChatBubbleRow(
               )
             }
             BubbleMetaRow(message = message, modifier = Modifier.align(Alignment.End).padding(top = 2.dp))
-          } else {
+          } else if (!hasCodeBlock) {
             val formattedText =
               remember(message.text, message.isOutgoing) {
                 parseChatMarkdown(
                   rawText = message.text,
-                  codeBackground = Color.Black.copy(alpha = 0.28f),
+                  codeBackground = Color(0x550D1117),
                   codeTextColor = AccentPurpleMuted,
                   accentColor = if (message.isOutgoing) OnAccentPurple else AccentPurpleBright,
                   quoteColor = WhatsAppTextSecondary,
@@ -1017,7 +1026,7 @@ private fun ChatBubbleRow(
             } else {
               Text(
                 text = formattedText,
-                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp),
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.5.sp),
                 color = WhatsAppTextPrimary,
               )
               BubbleMetaRow(
@@ -1025,6 +1034,16 @@ private fun ChatBubbleRow(
                 modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
               )
             }
+          } else {
+            RichChatMessageContent(
+              rawText = message.text,
+              isOutgoing = message.isOutgoing,
+              modifier = Modifier.fillMaxWidth(),
+            )
+            BubbleMetaRow(
+              message = message,
+              modifier = Modifier.align(Alignment.End).padding(top = 4.dp),
+            )
           }
         }
       }
@@ -1047,6 +1066,21 @@ private fun ChatBubbleRow(
           onClick = {
             showBubbleActions = false
             onReply()
+          },
+        )
+        DropdownMenuItem(
+          leadingIcon = {
+            Icon(
+              imageVector = LucideIcons.Copy,
+              contentDescription = null,
+              tint = AccentPurpleBright,
+              modifier = Modifier.size(18.dp),
+            )
+          },
+          text = { Text("Copy message", color = WhatsAppTextPrimary) },
+          onClick = {
+            showBubbleActions = false
+            copyTextToClipboard(context = context, label = "message", text = message.text)
           },
         )
       }

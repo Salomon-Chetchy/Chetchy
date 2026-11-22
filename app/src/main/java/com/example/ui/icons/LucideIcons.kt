@@ -1320,6 +1320,63 @@ object LucideIcons {
     }
   }
 
+  // Lucide: copy
+  val Copy: ImageVector by lazy {
+    lucideIcon("Copy") {
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.9f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(10f, 8f)
+        horizontalLineTo(20f)
+        arcTo(2f, 2f, 0f, false, true, 22f, 10f)
+        verticalLineTo(20f)
+        arcTo(2f, 2f, 0f, false, true, 20f, 22f)
+        horizontalLineTo(10f)
+        arcTo(2f, 2f, 0f, false, true, 8f, 20f)
+        verticalLineTo(10f)
+        arcTo(2f, 2f, 0f, false, true, 10f, 8f)
+        close()
+      }
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.9f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(4f, 16f)
+        curveTo(2.9f, 16f, 2f, 15.1f, 2f, 14f)
+        verticalLineTo(4f)
+        curveTo(2f, 2.9f, 2.9f, 2f, 4f, 2f)
+        horizontalLineTo(14f)
+        curveTo(15.1f, 2f, 16f, 2.9f, 16f, 4f)
+      }
+    }
+  }
+
+  // Lucide: code-2
+  val Code2: ImageVector by lazy {
+    lucideIcon("Code2") {
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 2f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(18f, 16f)
+        lineTo(22f, 12f)
+        lineTo(18f, 8f)
+        moveTo(6f, 8f)
+        lineTo(2f, 12f)
+        lineTo(6f, 16f)
+        moveTo(14.5f, 4f)
+        lineTo(9.5f, 20f)
+      }
+    }
+  }
+
   private inline fun lucideIcon(
     name: String,
     block: ImageVector.Builder.() -> Unit,
