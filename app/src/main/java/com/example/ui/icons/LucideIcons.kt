@@ -1377,6 +1377,45 @@ object LucideIcons {
     }
   }
 
+  // Lucide: file-text
+  val FileText: ImageVector by lazy {
+    lucideIcon("FileText") {
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.9f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(15f, 2f)
+        horizontalLineTo(6f)
+        arcTo(2f, 2f, 0f, false, false, 4f, 4f)
+        verticalLineTo(20f)
+        arcTo(2f, 2f, 0f, false, false, 6f, 22f)
+        horizontalLineTo(18f)
+        arcTo(2f, 2f, 0f, false, false, 20f, 20f)
+        verticalLineTo(7f)
+        close()
+      }
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.9f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(14f, 2f)
+        verticalLineTo(6f)
+        arcTo(2f, 2f, 0f, false, false, 16f, 8f)
+        horizontalLineTo(20f)
+        moveTo(10f, 9f)
+        horizontalLineTo(8f)
+        moveTo(16f, 13f)
+        horizontalLineTo(8f)
+        moveTo(16f, 17f)
+        horizontalLineTo(8f)
+      }
+    }
+  }
+
   private inline fun lucideIcon(
     name: String,
     block: ImageVector.Builder.() -> Unit,

@@ -15,12 +15,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.test.core.app.ApplicationProvider
 import android.net.Uri
+import com.example.ai.DocumentMetadata
+import com.example.ai.ExtractedDocumentPayload
 import com.example.ai.PuterAiEngine
 import com.example.ai.PuterAiResult
 import com.example.ai.PuterChatTurn
 import com.example.ai.PuterImageResult
 import com.example.ai.parsePuterDriverResponse
 import com.example.ai.parsePuterImageResponse
+import com.example.audio.FishAudioSttClient
+import com.example.audio.FishSttResult
+import com.example.audio.parseFishAudioSttResponse
 import com.example.ui.ChatsScreen
 import com.example.ui.ChatsViewModel
 import com.example.ui.components.parseChatMarkdown
@@ -31,6 +36,7 @@ import com.example.update.UpdateReleaseInfo
 import com.example.update.formatSizeInMb
 import com.example.update.isNewerRelease
 import com.example.update.parseReleaseJson
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -541,25 +547,56 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `chat screen mic button sends voice note bubble with waveform and duration`() {
+  fun `voice message bubble displays real duration and transcribes via Fish Audio for AI reply`() {
+    val parsedStt =
+      parseFishAudioSttResponse(
+        """{"text": "<|speaker:0|> Hey Aria, plan my jog", "duration": 8.2, "language_code": "en"}"""
+      )
+    assertTrue(parsedStt is FishSttResult.Success)
+    assertEquals("Hey Aria, plan my jog", (parsedStt as FishSttResult.Success).transcript)
+
+    val fakeAi =
+      object : PuterAiEngine {
+        override suspend fun generateReply(
+          messages: List<PuterChatTurn>,
+          modelId: String,
+          authToken: String?,
+        ): PuterAiResult = PuterAiResult.Success("Let's do a crisp 20-minute morning jog!")
+      }
+    val fakeStt =
+      object : FishAudioSttClient {
+        override suspend fun transcribeAudioFile(
+          file: java.io.File,
+          language: String?,
+        ): FishSttResult = FishSttResult.Success(transcript = "Hey Aria, plan my jog")
+      }
+
+    val vm = ChatsViewModel(puterAiEngine = fakeAi, fishAudioSttClient = fakeStt)
     composeTestRule.setContent {
       WhatsAppDarkTheme {
-        ChatsScreen(viewModel = ChatsViewModel())
+        ChatsScreen(viewModel = vm)
       }
     }
     composeTestRule.waitForIdle()
 
-    // Open Aria Coach conversation
+    // Open Aria Coach conversation and verify mic button is ready
     composeTestRule.onNodeWithText("Aria Coach").performClick()
     composeTestRule.mainClock.advanceTimeBy(400L)
     composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("chat_mic_button").assertIsDisplayed()
 
-    // Tap floating mic button to send a voice note
-    composeTestRule.onNodeWithTag("chat_mic_button").performClick()
-    composeTestRule.mainClock.advanceTimeBy(300L)
+    // Send recorded voice note -> shows playable bubble with 0:08 and AI reply via background STT
+    vm.sendVoiceMessage(
+      audioFilePath = "/tmp/sample_jog.m4a",
+      durationMillis = 8_200L,
+      waveformBars = listOf(0.3f, 0.8f, 0.5f, 0.9f),
+    )
+    composeTestRule.mainClock.advanceTimeBy(500L)
     composeTestRule.waitForIdle()
 
-    composeTestRule.onNodeWithText("0:06").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("voice_play_button").assertIsDisplayed()
+    composeTestRule.onNodeWithText("0:08").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Let's do a crisp 20-minute morning jog!").assertIsDisplayed()
   }
 
   @Test
@@ -627,7 +664,7 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `chat screen attach tools sheet generates AI image from prompt dialog`() {
+  fun `chat screen generates AI image naturally when user asks directly in chat`() {
     var capturedPrompt: String? = null
     val tinyPngDataUri =
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
@@ -660,30 +697,20 @@ class ExampleRobolectricTest {
     composeTestRule.mainClock.advanceTimeBy(400L)
     composeTestRule.waitForIdle()
 
-    // Open AI & Media tools bottom sheet
-    composeTestRule.onNodeWithTag("chat_attach_plus_button").performClick()
-    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.onNodeWithTag("chat_message_input").performTextInput("show me an image of a volcano")
     composeTestRule.waitForIdle()
-
-    composeTestRule.onNodeWithTag("chat_generate_image_option").assertIsDisplayed().performClick()
-    composeTestRule.mainClock.advanceTimeBy(400L)
-    composeTestRule.waitForIdle()
-
-    composeTestRule.onNodeWithTag("generate_image_prompt_input").performTextInput("Neon runner at dawn")
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("confirm_generate_image_button").performClick()
+    composeTestRule.onNodeWithTag("chat_send_button").performClick()
     composeTestRule.mainClock.advanceTimeBy(500L)
     composeTestRule.waitForIdle()
 
-    assertEquals("Neon runner at dawn", capturedPrompt)
+    assertEquals("a volcano", capturedPrompt)
     composeTestRule.onNodeWithTag("ai_generated_image_preview").assertIsDisplayed()
     composeTestRule.onNodeWithText("AI Generated").assertIsDisplayed()
   }
 
   @Test
-  fun `pending photo stages with AI Identify chip and passes imageDataUrl on send`() {
+  fun `pending photo stages like normal whatsapp upload and passes imageDataUrl across follow-ups`() {
     var capturedImageDataUrl: String? = null
-    var capturedPrompt: String? = null
     val fakePuterEngine =
       object : PuterAiEngine {
         override suspend fun generateReply(
@@ -691,10 +718,8 @@ class ExampleRobolectricTest {
           modelId: String,
           authToken: String?,
         ): PuterAiResult {
-          val lastUser = messages.lastOrNull { it.role == "user" }
-          capturedImageDataUrl = lastUser?.imageDataUrl
-          capturedPrompt = lastUser?.content
-          return PuterAiResult.Success("That looks like a **running shoe**!")
+          capturedImageDataUrl = messages.firstOrNull { !it.imageDataUrl.isNullOrBlank() }?.imageDataUrl
+          return PuterAiResult.Success("I see a running shoe in this image. What would you like me to do with it?")
         }
       }
 
@@ -715,19 +740,183 @@ class ExampleRobolectricTest {
     composeTestRule.waitForIdle()
 
     composeTestRule.onNodeWithTag("pending_photo_bar").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("toggle_photo_identify_chip").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("toggle_photo_identify_chip").assertDoesNotExist()
 
-    composeTestRule.onNodeWithTag("chat_message_input").performTextInput("What gear is this?")
-    composeTestRule.waitForIdle()
-
-    // Trigger send directly with test encoder to verify end-to-end multimodal payload
+    // Send without typing any text caption (just like WhatsApp)
     vm.sendMessage(imageEncoder = { "data:image/jpeg;base64,/9j/test" })
     composeTestRule.mainClock.advanceTimeBy(500L)
     composeTestRule.waitForIdle()
 
     assertEquals("data:image/jpeg;base64,/9j/test", capturedImageDataUrl)
-    assertEquals("What gear is this?", capturedPrompt)
     composeTestRule.onNodeWithTag("pending_photo_bar").assertDoesNotExist()
-    composeTestRule.onNodeWithText("That looks like a running shoe!").assertIsDisplayed()
+    composeTestRule
+      .onNodeWithText("I see a running shoe in this image. What would you like me to do with it?")
+      .assertIsDisplayed()
+
+    // Send a follow-up text message — AI still remembers the uploaded image!
+    capturedImageDataUrl = null
+    composeTestRule.onNodeWithTag("chat_message_input").performTextInput("What color is it?")
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("chat_send_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(500L)
+    composeTestRule.waitForIdle()
+
+    assertEquals("data:image/jpeg;base64,/9j/test", capturedImageDataUrl)
+  }
+
+  @Test
+  fun `attach button opens menu with Document and Photo gallery options and sends readable document to AI`() {
+    var capturedTurnContent: String? = null
+    val fakePuterEngine =
+      object : PuterAiEngine {
+        override suspend fun generateReply(
+          messages: List<PuterChatTurn>,
+          modelId: String,
+          authToken: String?,
+        ): PuterAiResult {
+          capturedTurnContent = messages.firstOrNull { it.content.contains("workout_plan.txt") }?.content
+          return PuterAiResult.Success("Your workout_plan.txt covers 30-minute HIIT sessions. Want me to adjust it?")
+        }
+      }
+
+    val vm = ChatsViewModel(puterAiEngine = fakePuterEngine)
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = vm)
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithText("Aria Coach").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    // Tapping attach shows both Document and Photo gallery options
+    composeTestRule.onNodeWithTag("chat_attach_plus_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(250L)
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("attach_document_option").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("attach_photo_option").assertIsDisplayed()
+
+    // Stage a .txt document
+    vm.onDocumentPicked(
+      uri = Uri.parse("content://docs/workout_plan.txt"),
+      metadataReader = {
+        DocumentMetadata(
+          fileName = "workout_plan.txt",
+          extension = "TXT",
+          sizeBytes = 1024L,
+          sizeLabel = "1 KB",
+          mimeType = "text/plain",
+        )
+      },
+      documentReader = {
+        ExtractedDocumentPayload(
+          fileName = "workout_plan.txt",
+          extension = "TXT",
+          sizeBytes = 1024L,
+          sizeLabel = "1 KB",
+          mimeType = "text/plain",
+          extractedText = "Monday: 30-minute HIIT\nWednesday: Mobility",
+          isReadableText = true,
+        )
+      },
+    )
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("pending_document_bar").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("chat_send_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(500L)
+    composeTestRule.waitForIdle()
+
+    assertTrue(capturedTurnContent?.contains("Monday: 30-minute HIIT") == true)
+    composeTestRule.onNodeWithTag("pending_document_bar").assertDoesNotExist()
+    composeTestRule.onNodeWithTag("chat_document_card").assertIsDisplayed()
+    composeTestRule
+      .onNodeWithText("Your workout_plan.txt covers 30-minute HIIT sessions. Want me to adjust it?")
+      .assertIsDisplayed()
+
+    // Tap the document card to preview extracted content
+    composeTestRule.onNodeWithTag("chat_document_card").performClick()
+    composeTestRule.mainClock.advanceTimeBy(250L)
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithText("Monday: 30-minute HIIT\nWednesday: Mobility").assertIsDisplayed()
+  }
+
+  @Test
+  fun `typing indicator appears above input area as typing ellipsis while AI processes response`() {
+    val deferredReply = CompletableDeferred<PuterAiResult>()
+    val fakePuterEngine =
+      object : PuterAiEngine {
+        override suspend fun generateReply(
+          messages: List<PuterChatTurn>,
+          modelId: String,
+          authToken: String?,
+        ): PuterAiResult = deferredReply.await()
+      }
+
+    val vm = ChatsViewModel(puterAiEngine = fakePuterEngine)
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = vm)
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithText("Aria Coach").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("chat_message_input").performTextInput("Hello Aria")
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("chat_send_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(250L)
+    composeTestRule.waitForIdle()
+
+    // Shows natural 'typing...' indicator above input area, never 'AI is thinking…' or 'AI is typing'
+    composeTestRule.onNodeWithTag("typing_indicator").assertIsDisplayed()
+    composeTestRule.onNodeWithText("typing...").assertIsDisplayed()
+    composeTestRule.onNodeWithText("AI is thinking…").assertDoesNotExist()
+    composeTestRule.onNodeWithText("AI is typing...").assertDoesNotExist()
+
+    // Complete AI reply and verify typing indicator hides smoothly
+    deferredReply.complete(PuterAiResult.Success("Hey there! Ready for today's session?"))
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("typing_indicator").assertDoesNotExist()
+    composeTestRule.onNodeWithText("Hey there! Ready for today's session?").assertIsDisplayed()
+  }
+
+  @Test
+  fun `settings tab allows adding and saving Fish Audio API key for voice STT`() {
+    val vm = ChatsViewModel()
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = vm)
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("nav_settings").performClick()
+    composeTestRule.mainClock.advanceTimeBy(300L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("fish_audio_settings_card").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithTag("edit_fish_api_key_button").performScrollTo().performClick()
+    composeTestRule.mainClock.advanceTimeBy(250L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("fish_api_key_input").performTextInput("sk-test-key-7890")
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("save_fish_api_key_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(300L)
+    composeTestRule.waitForIdle()
+
+    assertEquals("sk-test-key-7890", vm.uiState.value.fishAudioApiKey)
+    assertTrue(vm.uiState.value.hasFishAudioApiKey)
+    composeTestRule.onNodeWithText("Active").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithText("API key configured (•••7890)").performScrollTo().assertIsDisplayed()
   }
 }

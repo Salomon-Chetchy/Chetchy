@@ -58,7 +58,7 @@
     <string name="chat_learn_more">Learn more</string>
     <string name="chat_encryption_dialog_title">End-to-end encryption</string>
     <string name="chat_encryption_dialog_body">Your personal messages and calls stay private between you and this contact. Not even the server can read or listen to them.</string>
-    <string name="chat_tooltip_media">Tap 📎 to generate AI images or 📷 to identify photos</string>
+    <string name="chat_tooltip_media">Tap to attach a document or photo</string>
     <string name="chat_input_placeholder">Message</string>
     <string name="cd_video_call">Video call</string>
     <string name="cd_voice_call">Voice call</string>
@@ -143,7 +143,7 @@
     <string name="settings_about_subtitle">Package %1$s</string>
     <string name="ai_persona_badge">AI Persona</string>
     <string name="goal_label">Goal: %1$s (%2$d%%)</string>
-    <string name="ai_typing">AI is thinking…</string>
+    <string name="ai_typing">typing...</string>
     <string name="hint_ai_identity">AI Persona Personality / System Prompt</string>
     <string name="hint_goal_title">Goal (optional, e.g. Learn Spanish)</string>
 
@@ -168,19 +168,32 @@
     <string name="ai_generating_image">AI is creating image…</string>
     <string name="ai_generated_badge">AI Generated</string>
     <string name="cd_pending_photo">Selected photo preview</string>
-    <string name="photo_identify_ready_title">Photo ready for AI identification</string>
-    <string name="photo_identify_ready_hint">Ask a question or tap Send to identify</string>
     <string name="photo_attach_ready_title">Photo attached</string>
-    <string name="photo_attach_ready_hint">Tap AI Identify to analyze with Puter</string>
-    <string name="photo_identify_chip">AI Identify</string>
-    <string name="chat_tools_sheet_title">Media &amp; Puter AI Tools</string>
-    <string name="chat_tool_identify_photo_title">Identify Photo</string>
-    <string name="chat_tool_identify_photo_desc">Pick a gallery photo for AI vision identification</string>
-    <string name="chat_tool_generate_image_title">Generate AI Image</string>
-    <string name="chat_tool_generate_image_desc">Create an image from a prompt (or type /imagine)</string>
-    <string name="generate_image_dialog_title">Generate AI Image</string>
-    <string name="generate_image_dialog_subtitle">Describe the image you want Puter AI to create in this chat.</string>
-    <string name="generate_image_prompt_hint">e.g. A glowing purple nebula over snowy mountains</string>
-    <string name="generate_image_action">Generate</string>
+    <string name="photo_attach_ready_hint">Add a caption or tap Send</string>
     <string name="photo_viewer_title">Photo preview</string>
+    <string name="attach_document_label">Document</string>
+    <string name="attach_photo_label">Photo gallery</string>
+    <string name="document_reading_hint">Reading document…</string>
+    <string name="document_preview_vision_fallback">Scanned PDF pages are sent to AI vision when you ask a question.</string>
+    <string name="voice_cancel_cd">Discard voice recording</string>
+    <string name="voice_send_cd">Send voice message</string>
+    <string name="voice_recording_hint">Recording… tap Send or Trash</string>
+    <string name="voice_permission_denied">Microphone permission is required to record voice messages.</string>
+    <string name="voice_too_short">Hold or record a little longer to send a voice message.</string>
+    <string name="voice_play_cd">Play voice note</string>
+    <string name="voice_pause_cd">Pause voice note</string>
+
+    <!-- Fish Audio Voice STT Settings -->
+    <string name="settings_fish_title">Fish Audio Voice STT</string>
+    <string name="settings_fish_subtitle">Speech-to-text transcription for voice messages</string>
+    <string name="settings_fish_configured_masked">API key configured (•••%1$s)</string>
+    <string name="settings_fish_configured_env">Configured via build environment</string>
+    <string name="settings_fish_not_configured">No API key set — add your Fish Audio key to enable voice STT</string>
+    <string name="settings_fish_add_key">Add API Key</string>
+    <string name="settings_fish_update_key">Update API Key</string>
+    <string name="settings_fish_clear_key">Clear Key</string>
+    <string name="settings_fish_dialog_title">Fish Audio API Key</string>
+    <string name="settings_fish_dialog_hint">Paste your Fish Audio API key (from fish.audio) so AI contacts can transcribe and reply to your voice notes.</string>
+    <string name="settings_fish_dialog_placeholder">sk-fish-…</string>
+    <string name="cd_toggle_api_key_visibility">Toggle API key visibility</string>
 </resources>

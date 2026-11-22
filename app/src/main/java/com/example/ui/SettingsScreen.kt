@@ -34,6 +34,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -58,6 +59,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,6 +68,8 @@ import com.example.BuildConfig
 import com.example.R
 import com.example.ai.PuterModels
 import com.example.ai.PuterPreferences
+import com.example.audio.FishAudioConfig
+import com.example.audio.FishAudioPreferences
 import com.example.ui.components.PuterAuthTokenDialog
 import com.example.ui.components.PuterModelSelectorDialog
 import com.example.ui.icons.LucideIcons
@@ -97,6 +102,7 @@ fun SettingsTabContent(
   puterAuthToken: String,
   puterUsername: String?,
   isPuterConnected: Boolean,
+  fishAudioApiKey: String = "",
   onSyncSavedRepo: (String) -> Unit,
   onSaveRepo: (String) -> Unit,
   onCheckUpdates: () -> Unit,
@@ -104,6 +110,7 @@ fun SettingsTabContent(
   onSavePuterToken: (String) -> Unit,
   onSelectPuterModel: (String) -> Unit,
   onDisconnectPuter: () -> Unit,
+  onSaveFishAudioApiKey: (String) -> Unit = {},
   onShowSnackbar: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -113,6 +120,7 @@ fun SettingsTabContent(
   var showEncryptionDialog by remember { mutableStateOf(false) }
   var showPuterTokenDialog by remember { mutableStateOf(false) }
   var showPuterModelDialog by remember { mutableStateOf(false) }
+  var showFishAudioKeyDialog by remember { mutableStateOf(false) }
 
   LaunchedEffect(Unit) {
     val saved = UpdatePreferences.getRepoSlug(context)
@@ -190,6 +198,16 @@ fun SettingsTabContent(
       onDisconnectClick = {
         PuterPreferences.clearSession(context)
         onDisconnectPuter()
+      },
+    )
+
+    // Fish Audio Voice STT Card
+    FishAudioSettingsCard(
+      fishAudioApiKey = fishAudioApiKey,
+      onEditKeyClick = { showFishAudioKeyDialog = true },
+      onClearKeyClick = {
+        FishAudioPreferences.saveApiKey(context, "")
+        onSaveFishAudioApiKey("")
       },
     )
 
@@ -331,6 +349,19 @@ fun SettingsTabContent(
         PuterPreferences.saveSelectedModel(context, modelId)
         onSelectPuterModel(modelId)
         showPuterModelDialog = false
+      },
+    )
+  }
+
+  if (showFishAudioKeyDialog) {
+    FishAudioApiKeyDialog(
+      currentKey = fishAudioApiKey,
+      onDismiss = { showFishAudioKeyDialog = false },
+      onSaveKey = { rawKey ->
+        val clean = rawKey.trim()
+        FishAudioPreferences.saveApiKey(context, clean)
+        onSaveFishAudioApiKey(clean)
+        showFishAudioKeyDialog = false
       },
     )
   }
@@ -1022,6 +1053,226 @@ private fun EditGitHubRepoDialog(
         onClick = { onSave(value) },
         enabled = value.contains("/") && value.trim().length >= 3,
         modifier = Modifier.testTag("save_repo_button"),
+      ) {
+        Text(
+          text = stringResource(R.string.settings_repo_save),
+          color = AccentPurpleBright,
+        )
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = onDismiss) {
+        Text(
+          text = stringResource(R.string.action_cancel),
+          color = WhatsAppTextSecondary,
+        )
+      }
+    },
+  )
+}
+
+@Composable
+private fun FishAudioSettingsCard(
+  fishAudioApiKey: String,
+  onEditKeyClick: () -> Unit,
+  onClearKeyClick: () -> Unit,
+) {
+  val savedUserKey = FishAudioConfig.resolveApiKey(fishAudioApiKey)
+  val effectiveKey = FishAudioConfig.resolveEffectiveApiKey(fishAudioApiKey)
+  val isConfigured = effectiveKey != null
+
+  val statusText =
+    when {
+      savedUserKey != null -> {
+        val suffix = savedUserKey.takeLast(4.coerceAtMost(savedUserKey.length))
+        stringResource(R.string.settings_fish_configured_masked, suffix)
+      }
+      isConfigured -> stringResource(R.string.settings_fish_configured_env)
+      else -> stringResource(R.string.settings_fish_not_configured)
+    }
+
+  Surface(
+    color = WhatsAppSurfaceCard,
+    shape = RoundedCornerShape(18.dp),
+    border = BorderStroke(0.5.dp, WhatsAppOutlineSubtle),
+    modifier = Modifier.fillMaxWidth().testTag("fish_audio_settings_card"),
+  ) {
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(16.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Box(
+          modifier =
+            Modifier
+              .size(40.dp)
+              .clip(CircleShape)
+              .background(AccentPurpleSoftDark),
+          contentAlignment = Alignment.Center,
+        ) {
+          Icon(
+            imageVector = LucideIcons.Mic,
+            contentDescription = null,
+            tint = AccentPurpleBright,
+            modifier = Modifier.size(20.dp),
+          )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = stringResource(R.string.settings_fish_title),
+            style = MaterialTheme.typography.titleMedium,
+            color = WhatsAppTextPrimary,
+          )
+          Text(
+            text = stringResource(R.string.settings_fish_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = WhatsAppTextSecondary,
+          )
+        }
+        Surface(
+          color = if (isConfigured) AccentPurpleSoftDark else WhatsAppSurfaceElevated,
+          shape = RoundedCornerShape(50),
+        ) {
+          Text(
+            text = if (isConfigured) "Active" else "Setup",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isConfigured) AccentPurpleBright else WhatsAppTextSecondary,
+            modifier =
+              Modifier
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+                .testTag("fish_audio_status_badge"),
+          )
+        }
+      }
+
+      Text(
+        text = statusText,
+        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+        color = if (isConfigured) AccentPurpleMuted else WhatsAppTextSecondary,
+        modifier = Modifier.testTag("fish_audio_key_status"),
+      )
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        OutlinedButton(
+          onClick = onEditKeyClick,
+          shape = RoundedCornerShape(50),
+          border = BorderStroke(1.dp, AccentPurple),
+          colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentPurpleBright),
+          contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+          modifier =
+            Modifier
+              .weight(1f)
+              .minimumInteractiveComponentSize()
+              .height(48.dp)
+              .testTag("edit_fish_api_key_button"),
+        ) {
+          Text(
+            text =
+              if (savedUserKey != null) {
+                stringResource(R.string.settings_fish_update_key)
+              } else {
+                stringResource(R.string.settings_fish_add_key)
+              },
+            style = MaterialTheme.typography.labelLarge,
+          )
+        }
+
+        if (savedUserKey != null) {
+          TextButton(
+            onClick = onClearKeyClick,
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+            modifier =
+              Modifier
+                .minimumInteractiveComponentSize()
+                .height(48.dp)
+                .testTag("clear_fish_api_key_button"),
+          ) {
+            Text(
+              text = stringResource(R.string.settings_fish_clear_key),
+              style = MaterialTheme.typography.labelLarge,
+              color = ErrorCoral,
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun FishAudioApiKeyDialog(
+  currentKey: String,
+  onDismiss: () -> Unit,
+  onSaveKey: (String) -> Unit,
+) {
+  var keyValue by remember(currentKey) { mutableStateOf(currentKey) }
+  var showPlaintext by remember { mutableStateOf(false) }
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    containerColor = WhatsAppSurface,
+    titleContentColor = WhatsAppTextPrimary,
+    textContentColor = WhatsAppTextSecondary,
+    title = {
+      Text(
+        text = stringResource(R.string.settings_fish_dialog_title),
+        style = MaterialTheme.typography.titleMedium,
+      )
+    },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+          text = stringResource(R.string.settings_fish_dialog_hint),
+          style = MaterialTheme.typography.bodyMedium,
+          color = WhatsAppTextSecondary,
+        )
+        OutlinedTextField(
+          value = keyValue,
+          onValueChange = { keyValue = it },
+          placeholder = {
+            Text(
+              text = stringResource(R.string.settings_fish_dialog_placeholder),
+              color = WhatsAppTextSecondary,
+            )
+          },
+          singleLine = true,
+          visualTransformation =
+            if (showPlaintext) VisualTransformation.None else PasswordVisualTransformation(),
+          trailingIcon = {
+            IconButton(
+              onClick = { showPlaintext = !showPlaintext },
+              modifier = Modifier.minimumInteractiveComponentSize().testTag("toggle_fish_key_visibility"),
+            ) {
+              Icon(
+                imageVector = LucideIcons.Eye,
+                contentDescription = stringResource(R.string.cd_toggle_api_key_visibility),
+                tint = if (showPlaintext) AccentPurpleBright else WhatsAppTextSecondary,
+              )
+            }
+          },
+          colors =
+            OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = AccentPurple,
+              unfocusedBorderColor = WhatsAppOutlineSubtle,
+              focusedTextColor = WhatsAppTextPrimary,
+              unfocusedTextColor = WhatsAppTextPrimary,
+              cursorColor = AccentPurpleBright,
+            ),
+          modifier = Modifier.fillMaxWidth().testTag("fish_api_key_input"),
+        )
+      }
+    },
+    confirmButton = {
+      TextButton(
+        onClick = { onSaveKey(keyValue) },
+        modifier = Modifier.testTag("save_fish_api_key_button"),
       ) {
         Text(
           text = stringResource(R.string.settings_repo_save),

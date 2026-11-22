@@ -1,10 +1,25 @@
 package com.example.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.StartOffset
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
@@ -54,6 +69,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,14 +78,19 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -82,6 +104,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -96,11 +119,16 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.audio.VoicePlaybackController
+import com.example.audio.VoicePlaybackState
+import com.example.audio.VoiceRecorderController
+import com.example.audio.formatVoiceDuration
+import com.example.ui.components.ChatBubbleDocumentCard
 import com.example.ui.components.ChatBubbleImage
 import com.example.ui.components.ChatMarkdownBlock
-import com.example.ui.components.ChatMediaAndAiToolsSheet
+import com.example.ui.components.DocumentContentViewerDialog
 import com.example.ui.components.FullScreenImageViewerDialog
-import com.example.ui.components.GenerateAiImageDialog
+import com.example.ui.components.PendingDocumentAttachmentBar
 import com.example.ui.components.PendingPhotoAttachmentBar
 import com.example.ui.components.RichChatMessageContent
 import com.example.ui.components.copyTextToClipboard
@@ -149,7 +177,8 @@ fun ChatConversationScreen(
   onAppendEmoji: (String) -> Unit,
   onSendMessage: () -> Unit,
   onAttachMedia: () -> Unit,
-  onVoiceNote: () -> Unit,
+  onSendVoiceNote: (filePath: String, durationMillis: Long, waveformBars: List<Float>) -> Unit = { _, _, _ -> },
+  onShowVoiceNotice: (String) -> Unit = {},
   onDismissTooltip: () -> Unit,
   onStartCall: (String) -> Unit,
   onEndCall: () -> Unit,
@@ -157,32 +186,87 @@ fun ChatConversationScreen(
   isAiThinking: Boolean = false,
   isAiGeneratingImage: Boolean = false,
   pendingPhotoUri: Uri? = null,
-  pendingPhotoIdentifyWithAi: Boolean = true,
   onClearPendingPhoto: () -> Unit = {},
-  onTogglePendingPhotoIdentify: () -> Unit = {},
-  onGenerateAiImage: (String) -> Unit = {},
+  pendingDocument: PendingDocumentAttachment? = null,
+  onAttachDocument: () -> Unit = {},
+  onClearPendingDocument: () -> Unit = {},
   replyingToMessage: ChatMessage? = null,
   onReplyToMessage: (ChatMessage) -> Unit = {},
   onCancelReply: () -> Unit = {},
   onClearChat: () -> Unit = {},
+  snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
 ) {
   BackHandler(onBack = onBack)
 
+  val context = LocalContext.current
   var showEncryptionDialog by remember { mutableStateOf(false) }
   var showContactInfoSheet by remember { mutableStateOf(false) }
   var showEmojiStrip by remember { mutableStateOf(false) }
-  var showToolsSheet by remember { mutableStateOf(false) }
-  var showGenerateImageDialog by remember { mutableStateOf(false) }
   var previewImageMessage by remember { mutableStateOf<ChatMessage?>(null) }
+  var previewDocumentMessage by remember { mutableStateOf<ChatMessage?>(null) }
   val listState = rememberLazyListState()
   val coroutineScope = rememberCoroutineScope()
+
+  val recorderController = remember { VoiceRecorderController() }
+  val playbackController = remember(coroutineScope) { VoicePlaybackController(coroutineScope) }
+  val playbackState by playbackController.state.collectAsStateWithLifecycle()
+
+  var isRecordingVoice by remember { mutableStateOf(false) }
+  var recordingElapsedMs by remember { mutableLongStateOf(0L) }
+  val liveRecordingWaveform = remember { mutableStateListOf<Float>() }
+  var startRecordingAfterPermission by remember { mutableStateOf(false) }
+
+  fun beginVoiceRecording() {
+    playbackController.stop()
+    if (recorderController.startRecording(context)) {
+      liveRecordingWaveform.clear()
+      recordingElapsedMs = 0L
+      isRecordingVoice = true
+    } else {
+      onShowVoiceNotice(context.getString(R.string.voice_too_short))
+    }
+  }
+
+  val micPermissionLauncher =
+    rememberLauncherForActivityResult(
+      contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+      if (granted) {
+        if (startRecordingAfterPermission) {
+          startRecordingAfterPermission = false
+          beginVoiceRecording()
+        }
+      } else {
+        startRecordingAfterPermission = false
+        onShowVoiceNotice(context.getString(R.string.voice_permission_denied))
+      }
+    }
+
+  LaunchedEffect(isRecordingVoice) {
+    while (isRecordingVoice) {
+      recordingElapsedMs = recorderController.elapsedMillis()
+      val amp = recorderController.sampleNormalizedAmplitude()
+      liveRecordingWaveform.add(amp)
+      if (liveRecordingWaveform.size > 32) {
+        liveRecordingWaveform.removeAt(0)
+      }
+      delay(80L)
+    }
+  }
+
+  DisposableEffect(Unit) {
+    onDispose {
+      recorderController.cancelRecording()
+      playbackController.stop()
+    }
+  }
 
   val showScrollToBottom by remember {
     derivedStateOf { listState.canScrollForward }
   }
 
   LaunchedEffect(messages.size, isAiThinking, isAiGeneratingImage) {
-    val extraItems = (if (isAiThinking) 1 else 0) + (if (isAiGeneratingImage) 1 else 0)
+    val extraItems = if (isAiGeneratingImage) 1 else 0
     val targetIndex = messages.size + 1 + extraItems
     if (messages.isNotEmpty() || isAiThinking || isAiGeneratingImage) {
       listState.animateScrollToItem(targetIndex)
@@ -192,6 +276,7 @@ fun ChatConversationScreen(
   Scaffold(
     modifier = Modifier.fillMaxSize(),
     containerColor = WhatsAppBackground,
+    snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     contentWindowInsets = WindowInsets(0, 0, 0, 0),
     topBar = {
       Column {
@@ -314,38 +399,18 @@ fun ChatConversationScreen(
                 message = message,
                 contact = contact,
                 isFirstInGroup = isFirstInGroup,
+                playbackState = playbackState,
+                onToggleVoicePlay = {
+                  playbackController.togglePlayback(
+                    messageId = message.id,
+                    audioPath = message.audioFilePath,
+                    fallbackDurationMs = message.audioDurationMs,
+                  )
+                },
                 onReply = { onReplyToMessage(message) },
                 onImageClick = { previewImageMessage = message },
+                onDocumentClick = { previewDocumentMessage = message },
               )
-            }
-
-            if (isAiThinking) {
-              item(key = "ai_thinking_indicator") {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                  modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                  horizontalArrangement = Arrangement.Start,
-                ) {
-                  Surface(
-                    color = IncomingBubbleSurface,
-                    shape =
-                      RoundedCornerShape(
-                        topStart = 4.dp,
-                        topEnd = 14.dp,
-                        bottomStart = 14.dp,
-                        bottomEnd = 14.dp,
-                      ),
-                    modifier = Modifier.testTag("ai_thinking_bubble"),
-                  ) {
-                    Text(
-                      text = stringResource(R.string.ai_typing),
-                      style = MaterialTheme.typography.bodyMedium,
-                      color = AccentPurpleMuted,
-                      modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    )
-                  }
-                }
-              }
             }
 
             if (isAiGeneratingImage) {
@@ -474,9 +539,14 @@ fun ChatConversationScreen(
           if (pendingPhotoUri != null) {
             PendingPhotoAttachmentBar(
               photoUri = pendingPhotoUri,
-              identifyWithAi = pendingPhotoIdentifyWithAi,
-              onToggleIdentify = onTogglePendingPhotoIdentify,
               onClear = onClearPendingPhoto,
+            )
+          }
+
+          if (pendingDocument != null) {
+            PendingDocumentAttachmentBar(
+              document = pendingDocument,
+              onClear = onClearPendingDocument,
             )
           }
 
@@ -488,22 +558,81 @@ fun ChatConversationScreen(
             )
           }
 
-          ChatBottomInputBar(
-            inputText = inputText,
-            hasAttachment = pendingPhotoUri != null,
-            onInputChange = onInputChange,
-            onPlusClick = {
-              onDismissTooltip()
-              showToolsSheet = true
-            },
-            onEmojiToggle = { showEmojiStrip = !showEmojiStrip },
-            onCameraClick = {
-              onDismissTooltip()
-              onAttachMedia()
-            },
-            onMicClick = onVoiceNote,
-            onSendClick = onSendMessage,
-          )
+          AnimatedVisibility(
+            visible = isAiThinking,
+            enter =
+              fadeIn(tween(180)) +
+                expandVertically(tween(200), expandFrom = Alignment.Bottom) +
+                slideInVertically(tween(220)) { it / 2 },
+            exit =
+              fadeOut(tween(140)) +
+                shrinkVertically(tween(160), shrinkTowards = Alignment.Bottom) +
+                slideOutVertically(tween(160)) { it / 2 },
+          ) {
+            TypingIndicatorBar(contact = contact)
+          }
+
+          AnimatedContent(
+            targetState = isRecordingVoice,
+            transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(120)) },
+            label = "composer_voice_switch",
+          ) { recording ->
+            if (recording) {
+              VoiceRecordingBottomBar(
+                elapsedMillis = recordingElapsedMs,
+                liveWaveform = liveRecordingWaveform.toList(),
+                onCancel = {
+                  recorderController.cancelRecording()
+                  isRecordingVoice = false
+                },
+                onSend = {
+                  val recorded = recorderController.stopAndSave()
+                  isRecordingVoice = false
+                  if (recorded != null) {
+                    onSendVoiceNote(
+                      recorded.filePath,
+                      recorded.durationMillis,
+                      recorded.waveformBars,
+                    )
+                  } else {
+                    onShowVoiceNotice(context.getString(R.string.voice_too_short))
+                  }
+                },
+              )
+            } else {
+              ChatBottomInputBar(
+                inputText = inputText,
+                hasAttachment = pendingPhotoUri != null || pendingDocument != null,
+                onInputChange = onInputChange,
+                onAttachPhoto = {
+                  onDismissTooltip()
+                  onAttachMedia()
+                },
+                onAttachDocument = {
+                  onDismissTooltip()
+                  onAttachDocument()
+                },
+                onEmojiToggle = { showEmojiStrip = !showEmojiStrip },
+                onCameraClick = {
+                  onDismissTooltip()
+                  onAttachMedia()
+                },
+                onMicClick = {
+                  onDismissTooltip()
+                  val hasPermission =
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                      PackageManager.PERMISSION_GRANTED
+                  if (hasPermission) {
+                    beginVoiceRecording()
+                  } else {
+                    startRecordingAfterPermission = true
+                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                  }
+                },
+                onSendClick = onSendMessage,
+              )
+            }
+          }
         }
       }
     }
@@ -698,30 +827,6 @@ fun ChatConversationScreen(
     }
   }
 
-  if (showToolsSheet) {
-    ChatMediaAndAiToolsSheet(
-      onIdentifyPhotoClick = {
-        showToolsSheet = false
-        onAttachMedia()
-      },
-      onGenerateImageClick = {
-        showToolsSheet = false
-        showGenerateImageDialog = true
-      },
-      onDismiss = { showToolsSheet = false },
-    )
-  }
-
-  if (showGenerateImageDialog) {
-    GenerateAiImageDialog(
-      onDismiss = { showGenerateImageDialog = false },
-      onGenerate = { prompt ->
-        showGenerateImageDialog = false
-        onGenerateAiImage(prompt)
-      },
-    )
-  }
-
   previewImageMessage?.let { previewMsg ->
     val uri = previewMsg.imageUri
     if (!uri.isNullOrBlank()) {
@@ -730,6 +835,26 @@ fun ChatConversationScreen(
         caption = stripChatMarkdown(previewMsg.text),
         isAiGenerated = previewMsg.mediaLabel == "AI Image",
         onDismiss = { previewImageMessage = null },
+      )
+    }
+  }
+
+  previewDocumentMessage?.let { docMsg ->
+    val docName = docMsg.documentName
+    if (!docName.isNullOrBlank()) {
+      val metaParts =
+        buildList {
+          docMsg.documentExtension?.takeIf { it.isNotBlank() }?.let { add(it) }
+          docMsg.documentSizeLabel?.takeIf { it.isNotBlank() }?.let { add(it) }
+          if (docMsg.documentPageCount > 0) {
+            add(if (docMsg.documentPageCount == 1) "1 page" else "${docMsg.documentPageCount} pages")
+          }
+        }
+      DocumentContentViewerDialog(
+        fileName = docName,
+        metaLine = metaParts.joinToString(" • "),
+        extractedText = docMsg.documentExtractedText.orEmpty(),
+        onDismiss = { previewDocumentMessage = null },
       )
     }
   }
@@ -991,8 +1116,11 @@ private fun ChatBubbleRow(
   message: ChatMessage,
   contact: Contact,
   isFirstInGroup: Boolean,
+  playbackState: VoicePlaybackState,
+  onToggleVoicePlay: () -> Unit,
   onReply: () -> Unit,
   onImageClick: (ChatMessage) -> Unit = {},
+  onDocumentClick: (ChatMessage) -> Unit = {},
 ) {
   val context = LocalContext.current
   val density = LocalDensity.current
@@ -1002,7 +1130,8 @@ private fun ChatBubbleRow(
   val hasCodeBlock = remember(message.text) {
     splitChatMarkdownBlocks(message.text).any { it is ChatMarkdownBlock.Code }
   }
-  val hasImage = !message.imageUri.isNullOrBlank()
+  val imageUri = message.imageUri?.takeIf { it.isNotBlank() }
+  val docName = message.documentName?.takeIf { it.isNotBlank() }
   val tailInsetStart = if (!message.isOutgoing && isFirstInGroup) 8.dp else 0.dp
   val tailInsetEnd = if (message.isOutgoing && isFirstInGroup) 8.dp else 0.dp
   val horizontalPadStart = if (!message.isOutgoing && !isFirstInGroup) 8.dp else 0.dp
@@ -1024,7 +1153,7 @@ private fun ChatBubbleRow(
         shadowElevation = 0.5.dp,
         modifier =
           Modifier
-            .widthIn(max = if (hasCodeBlock) 340.dp else if (hasImage) 310.dp else 300.dp)
+            .widthIn(max = if (hasCodeBlock) 340.dp else if (imageUri != null || docName != null) 310.dp else 300.dp)
             .clip(bubbleShape)
             .combinedClickable(
               onClick = { showBubbleActions = true },
@@ -1077,9 +1206,9 @@ private fun ChatBubbleRow(
             }
           }
 
-          if (hasImage && message.imageUri != null) {
+          if (imageUri != null) {
             ChatBubbleImage(
-              imageUri = message.imageUri,
+              imageUri = imageUri,
               contentDescription = stripChatMarkdown(message.text).ifBlank { contact.displayName },
               isAiGenerated = message.mediaLabel == "AI Image",
               onClick = { onImageClick(message) },
@@ -1103,10 +1232,39 @@ private fun ChatBubbleRow(
               )
             }
             BubbleMetaRow(message = message, modifier = Modifier.align(Alignment.End).padding(top = 4.dp))
+          } else if (docName != null) {
+            ChatBubbleDocumentCard(
+              fileName = docName,
+              extension = message.documentExtension ?: "FILE",
+              sizeLabel = message.documentSizeLabel,
+              pageCount = message.documentPageCount,
+              onClick = { onDocumentClick(message) },
+            )
+            if (message.text.isNotBlank()) {
+              val formattedCaption =
+                remember(message.text, message.isOutgoing) {
+                  parseChatMarkdown(
+                    rawText = message.text,
+                    codeBackground = Color(0x550D1117),
+                    codeTextColor = AccentPurpleMuted,
+                    accentColor = if (message.isOutgoing) OnAccentPurple else AccentPurpleBright,
+                    quoteColor = WhatsAppTextSecondary,
+                  )
+                }
+              Text(
+                text = formattedCaption,
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.5.sp, lineHeight = 19.5.sp),
+                color = WhatsAppTextPrimary,
+                modifier = Modifier.padding(top = 6.dp),
+              )
+            }
+            BubbleMetaRow(message = message, modifier = Modifier.align(Alignment.End).padding(top = 4.dp))
           } else if (message.mediaLabel == "Voice") {
             VoiceNoteBubbleContent(
               message = message,
               contact = contact,
+              playbackState = playbackState,
+              onTogglePlay = onToggleVoicePlay,
             )
           } else if (message.mediaLabel != null) {
             Row(
@@ -1223,32 +1381,40 @@ private fun ChatBubbleRow(
 private fun VoiceNoteBubbleContent(
   message: ChatMessage,
   contact: Contact,
+  playbackState: VoicePlaybackState,
+  onTogglePlay: () -> Unit,
 ) {
-  var isPlaying by remember { mutableStateOf(false) }
-  var progress by remember { mutableFloatStateOf(0.08f) }
-
-  LaunchedEffect(isPlaying) {
-    while (isPlaying) {
-      delay(80L)
-      progress += 0.03f
-      if (progress >= 1f) {
-        progress = 0.08f
-        isPlaying = false
-      }
-    }
+  val isLoaded = playbackState.playingMessageId == message.id
+  val isPlaying = isLoaded && playbackState.isPlaying
+  val progress = if (isLoaded) playbackState.progress else 0f
+  val bars = remember(message.audioWaveform) {
+    if (message.audioWaveform.isNotEmpty()) message.audioWaveform else VoiceWaveformHeights
   }
+  val totalMs =
+    when {
+      isLoaded && playbackState.durationMs > 0L -> playbackState.durationMs
+      message.audioDurationMs > 0L -> message.audioDurationMs
+      else -> 6000L
+    }
+  val durationText =
+    if (isLoaded && playbackState.positionMs > 0L) {
+      formatVoiceDuration(playbackState.positionMs)
+    } else {
+      formatVoiceDuration(totalMs)
+    }
 
   Row(
     modifier = Modifier.widthIn(min = 225.dp, max = 265.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     IconButton(
-      onClick = { isPlaying = !isPlaying },
-      modifier = Modifier.size(36.dp),
+      onClick = onTogglePlay,
+      modifier = Modifier.size(36.dp).testTag("voice_play_button"),
     ) {
       Icon(
         imageVector = if (isPlaying) LucideIcons.Pause else LucideIcons.Play,
-        contentDescription = if (isPlaying) "Pause voice note" else "Play voice note",
+        contentDescription =
+          if (isPlaying) stringResource(R.string.voice_pause_cd) else stringResource(R.string.voice_play_cd),
         tint = WhatsAppTextSecondary,
         modifier = Modifier.size(18.dp),
       )
@@ -1258,18 +1424,18 @@ private fun VoiceNoteBubbleContent(
 
     Column(modifier = Modifier.weight(1f)) {
       Canvas(modifier = Modifier.fillMaxWidth().height(24.dp)) {
-        val barCount = VoiceWaveformHeights.size
+        val barCount = bars.size.coerceAtLeast(1)
         val step = size.width / barCount
         val barWidth = (step * 0.48f).coerceAtLeast(2.dp.toPx())
         val activeIndex = (progress * barCount).toInt()
 
         for (i in 0 until barCount) {
           val x = i * step + step * 0.25f
-          val barH = (size.height * VoiceWaveformHeights[i]).coerceAtLeast(3.dp.toPx())
+          val barH = (size.height * bars[i]).coerceAtLeast(3.dp.toPx())
           val y = (size.height - barH) / 2f
           drawRoundRect(
             color =
-              if (i <= activeIndex) {
+              if (i < activeIndex) {
                 AccentPurpleBright
               } else {
                 WhatsAppTextSecondary.copy(alpha = 0.55f)
@@ -1295,7 +1461,7 @@ private fun VoiceNoteBubbleContent(
         verticalAlignment = Alignment.CenterVertically,
       ) {
         Text(
-          text = "0:06",
+          text = durationText,
           style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
           color = WhatsAppTextSecondary,
         )
@@ -1481,16 +1647,231 @@ private fun MediaTooltipBubble(
 }
 
 @Composable
+private fun TypingIndicatorBar(
+  contact: Contact,
+  modifier: Modifier = Modifier,
+) {
+  val infiniteTransition = rememberInfiniteTransition(label = "typing_indicator_transition")
+  val dotPhases =
+    listOf(0, 150, 300).map { delayMs ->
+      infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec =
+          infiniteRepeatable(
+            animation = tween(durationMillis = 480, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+            initialStartOffset = StartOffset(delayMs),
+          ),
+        label = "typing_dot_$delayMs",
+      )
+    }
+  val density = LocalDensity.current
+  val maxBouncePx = with(density) { 4.dp.toPx() }
+  val initials = contact.initials.ifEmpty { contact.displayName.take(1).uppercase() }
+
+  Row(
+    modifier =
+      modifier
+        .fillMaxWidth()
+        .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 2.dp)
+        .testTag("typing_indicator"),
+    horizontalArrangement = Arrangement.Start,
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Surface(
+      color = IncomingBubbleSurface.copy(alpha = 0.96f),
+      shape = RoundedCornerShape(18.dp),
+      border = BorderStroke(0.5.dp, WhatsAppOutlineSubtle),
+      shadowElevation = 2.dp,
+    ) {
+      Row(
+        modifier = Modifier.padding(start = 8.dp, end = 13.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        if (initials.isNotEmpty()) {
+          Box(
+            modifier =
+              Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .background(AccentPurpleSoftDark),
+            contentAlignment = Alignment.Center,
+          ) {
+            Text(
+              text = initials,
+              style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Bold),
+              color = AccentPurpleMuted,
+            )
+          }
+        }
+
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          dotPhases.forEach { phaseState ->
+            val t = phaseState.value
+            Box(
+              modifier =
+                Modifier
+                  .size(6.dp)
+                  .graphicsLayer {
+                    translationY = (0.5f - t) * maxBouncePx
+                    val scale = 0.8f + 0.35f * t
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = 0.35f + 0.65f * t
+                  }
+                  .clip(CircleShape)
+                  .background(AccentPurpleBright),
+            )
+          }
+        }
+
+        Text(
+          text = stringResource(R.string.ai_typing),
+          style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Medium),
+          color = WhatsAppTextSecondary,
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun VoiceRecordingBottomBar(
+  elapsedMillis: Long,
+  liveWaveform: List<Float>,
+  onCancel: () -> Unit,
+  onSend: () -> Unit,
+) {
+  val pulseTransition = rememberInfiniteTransition(label = "voice_rec_pulse")
+  val dotAlpha by pulseTransition.animateFloat(
+    initialValue = 1f,
+    targetValue = 0.25f,
+    animationSpec = infiniteRepeatable(animation = tween(550), repeatMode = RepeatMode.Reverse),
+    label = "voice_rec_dot_alpha",
+  )
+
+  Row(
+    modifier =
+      Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 8.dp, vertical = 7.dp)
+        .testTag("voice_recording_bar"),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(7.dp),
+  ) {
+    Row(
+      modifier =
+        Modifier
+          .weight(1f)
+          .height(48.dp)
+          .clip(RoundedCornerShape(24.dp))
+          .background(IncomingBubbleSurface)
+          .padding(horizontal = 8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      IconButton(
+        onClick = onCancel,
+        modifier = Modifier.size(36.dp).testTag("voice_cancel_button"),
+      ) {
+        Icon(
+          imageVector = LucideIcons.Trash2,
+          contentDescription = stringResource(R.string.voice_cancel_cd),
+          tint = Color(0xFFEF5350),
+          modifier = Modifier.size(20.dp),
+        )
+      }
+
+      Spacer(modifier = Modifier.width(4.dp))
+
+      Box(
+        modifier =
+          Modifier
+            .size(9.dp)
+            .graphicsLayer { alpha = dotAlpha }
+            .clip(CircleShape)
+            .background(Color(0xFFEF5350)),
+      )
+
+      Spacer(modifier = Modifier.width(8.dp))
+
+      Text(
+        text = formatVoiceDuration(elapsedMillis),
+        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp),
+        color = WhatsAppTextPrimary,
+        modifier = Modifier.testTag("voice_recording_timer"),
+      )
+
+      Spacer(modifier = Modifier.width(10.dp))
+
+      Canvas(modifier = Modifier.weight(1f).height(24.dp)) {
+        val barCount = 24
+        val step = size.width / barCount
+        val barWidth = (step * 0.48f).coerceAtLeast(2.dp.toPx())
+        val offset = (barCount - liveWaveform.size).coerceAtLeast(0)
+        for (i in 0 until barCount) {
+          val amp =
+            if (i >= offset && (i - offset) < liveWaveform.size) {
+              liveWaveform[i - offset]
+            } else {
+              0.2f
+            }
+          val barH = (size.height * amp).coerceAtLeast(3.dp.toPx())
+          val x = i * step + step * 0.25f
+          val y = (size.height - barH) / 2f
+          drawRoundRect(
+            color = if (i >= offset) AccentPurpleBright else WhatsAppTextSecondary.copy(alpha = 0.35f),
+            topLeft = Offset(x, y),
+            size = Size(barWidth, barH),
+            cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
+          )
+        }
+      }
+    }
+
+    Box(
+      modifier =
+        Modifier
+          .minimumInteractiveComponentSize()
+          .size(48.dp)
+          .clip(CircleShape)
+          .background(AccentPurple)
+          .clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = ripple(bounded = true),
+            onClick = onSend,
+          )
+          .testTag("voice_send_button"),
+      contentAlignment = Alignment.Center,
+    ) {
+      Icon(
+        imageVector = LucideIcons.SendHorizontal,
+        contentDescription = stringResource(R.string.voice_send_cd),
+        tint = OnAccentPurple,
+        modifier = Modifier.size(21.dp),
+      )
+    }
+  }
+}
+
+@Composable
 private fun ChatBottomInputBar(
   inputText: String,
   hasAttachment: Boolean = false,
   onInputChange: (String) -> Unit,
-  onPlusClick: () -> Unit,
+  onAttachPhoto: () -> Unit,
+  onAttachDocument: () -> Unit,
   onEmojiToggle: () -> Unit,
   onCameraClick: () -> Unit,
   onMicClick: () -> Unit,
   onSendClick: () -> Unit,
 ) {
+  var showAttachMenu by remember { mutableStateOf(false) }
+
   Row(
     modifier =
       Modifier
@@ -1543,16 +1924,66 @@ private fun ChatBottomInputBar(
         )
       }
 
-      IconButton(
-        onClick = onPlusClick,
-        modifier = Modifier.size(36.dp).testTag("chat_attach_plus_button"),
-      ) {
-        Icon(
-          imageVector = LucideIcons.Paperclip,
-          contentDescription = stringResource(R.string.cd_attach_media),
-          tint = WhatsAppTextSecondary,
-          modifier = Modifier.size(20.dp),
-        )
+      Box {
+        IconButton(
+          onClick = { showAttachMenu = true },
+          modifier = Modifier.size(36.dp).testTag("chat_attach_plus_button"),
+        ) {
+          Icon(
+            imageVector = LucideIcons.Paperclip,
+            contentDescription = stringResource(R.string.cd_attach_media),
+            tint = WhatsAppTextSecondary,
+            modifier = Modifier.size(20.dp),
+          )
+        }
+        DropdownMenu(
+          expanded = showAttachMenu,
+          onDismissRequest = { showAttachMenu = false },
+          containerColor = WhatsAppSurfaceElevated,
+        ) {
+          DropdownMenuItem(
+            leadingIcon = {
+              Icon(
+                imageVector = LucideIcons.FileText,
+                contentDescription = null,
+                tint = AccentPurpleBright,
+                modifier = Modifier.size(18.dp),
+              )
+            },
+            text = {
+              Text(
+                text = stringResource(R.string.attach_document_label),
+                color = WhatsAppTextPrimary,
+              )
+            },
+            onClick = {
+              showAttachMenu = false
+              onAttachDocument()
+            },
+            modifier = Modifier.testTag("attach_document_option"),
+          )
+          DropdownMenuItem(
+            leadingIcon = {
+              Icon(
+                imageVector = LucideIcons.Image,
+                contentDescription = null,
+                tint = AccentPurpleBright,
+                modifier = Modifier.size(18.dp),
+              )
+            },
+            text = {
+              Text(
+                text = stringResource(R.string.attach_photo_label),
+                color = WhatsAppTextPrimary,
+              )
+            },
+            onClick = {
+              showAttachMenu = false
+              onAttachPhoto()
+            },
+            modifier = Modifier.testTag("attach_photo_option"),
+          )
+        }
       }
 
       if (inputText.isBlank() && !hasAttachment) {

@@ -70,8 +70,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.BuildConfig
 import com.example.R
+import com.example.ai.PuterDocumentStorage
 import com.example.ai.PuterImageStorage
 import com.example.ai.PuterPreferences
+import com.example.audio.FishAudioPreferences
 import com.example.ui.components.ActiveChatsListContent
 import com.example.ui.components.ChetchyBottomNavigationBar
 import com.example.ui.components.ChetchyNavigationRail
@@ -108,6 +110,7 @@ fun ChatsScreen(
     val savedToken = PuterPreferences.getAuthToken(context)
     val savedUser = PuterPreferences.getUsername(context)
     viewModel.syncPuterPreferences(savedModel, savedToken, savedUser)
+    viewModel.syncFishAudioApiKey(FishAudioPreferences.getApiKey(context))
   }
 
   LaunchedEffect(uiState.puterAuthToken, uiState.puterUsername) {
@@ -123,6 +126,18 @@ fun ChatsScreen(
     rememberLauncherForActivityResult(
       contract = ActivityResultContracts.PickVisualMedia(),
       onResult = { uri -> viewModel.onPhotoPicked(uri) },
+    )
+
+  val documentPickerLauncher =
+    rememberLauncherForActivityResult(
+      contract = ActivityResultContracts.OpenDocument(),
+      onResult = { uri ->
+        viewModel.onDocumentPicked(
+          uri = uri,
+          metadataReader = { picked -> PuterDocumentStorage.queryMetadata(context, picked) },
+          documentReader = { picked -> PuterDocumentStorage.readDocumentFromUri(context, picked) },
+        )
+      },
     )
 
   LaunchedEffect(uiState.snackbarMessage) {
@@ -183,6 +198,7 @@ fun ChatsScreen(
             viewModel.sendMessage(
               imageEncoder = { uri -> PuterImageStorage.encodeUriToDataUrl(context, uri) },
               imagePersister = { raw -> PuterImageStorage.persistGeneratedImageIfDataUri(context, raw) },
+              documentReader = { uri -> PuterDocumentStorage.readDocumentFromUri(context, uri) },
             )
           },
           onAttachMedia = {
@@ -190,7 +206,16 @@ fun ChatsScreen(
               PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
             )
           },
-          onVoiceNote = viewModel::sendVoiceNotePlaceholder,
+          onSendVoiceNote = { filePath, durationMs, waveform ->
+            viewModel.sendVoiceMessage(
+              audioFilePath = filePath,
+              durationMillis = durationMs,
+              waveformBars = waveform,
+              imageEncoder = { uri -> PuterImageStorage.encodeUriToDataUrl(context, uri) },
+              imagePersister = { raw -> PuterImageStorage.persistGeneratedImageIfDataUri(context, raw) },
+            )
+          },
+          onShowVoiceNotice = viewModel::showSnackbar,
           onDismissTooltip = viewModel::dismissMediaTooltip,
           onStartCall = viewModel::startCall,
           onEndCall = viewModel::endCall,
@@ -198,19 +223,24 @@ fun ChatsScreen(
           isAiThinking = uiState.aiThinkingContactId == activeChatContact.id,
           isAiGeneratingImage = uiState.aiGeneratingImageContactId == activeChatContact.id,
           pendingPhotoUri = uiState.pendingPhotoUri,
-          pendingPhotoIdentifyWithAi = uiState.pendingPhotoIdentifyWithAi,
           onClearPendingPhoto = viewModel::clearPendingPhoto,
-          onTogglePendingPhotoIdentify = viewModel::togglePendingPhotoIdentify,
-          onGenerateAiImage = { prompt ->
-            viewModel.generateAiImage(
-              prompt = prompt,
-              imagePersister = { raw -> PuterImageStorage.persistGeneratedImageIfDataUri(context, raw) },
+          pendingDocument = uiState.pendingDocument,
+          onAttachDocument = {
+            documentPickerLauncher.launch(
+              arrayOf(
+                "application/pdf",
+                "text/*",
+                "application/json",
+                "application/xml",
+              )
             )
           },
+          onClearPendingDocument = viewModel::clearPendingDocument,
           replyingToMessage = uiState.replyingToMessage,
           onReplyToMessage = viewModel::startReplyingTo,
           onCancelReply = viewModel::cancelReply,
           onClearChat = viewModel::clearActiveChat,
+          snackbarHostState = snackbarHostState,
         )
       }
       screenKey.startsWith("channel:") && activeChannel != null -> {
@@ -255,6 +285,7 @@ fun ChatsScreen(
           onSavePuterToken = viewModel::setPuterAuthToken,
           onSelectPuterModel = viewModel::setPuterModel,
           onDisconnectPuter = viewModel::disconnectPuter,
+          onSaveFishAudioApiKey = viewModel::setFishAudioApiKey,
           onShowSnackbar = viewModel::showSnackbar,
         )
       }
@@ -436,6 +467,7 @@ private fun ChatsHomeContainer(
   onSavePuterToken: (String) -> Unit,
   onSelectPuterModel: (String) -> Unit,
   onDisconnectPuter: () -> Unit,
+  onSaveFishAudioApiKey: (String) -> Unit,
   onShowSnackbar: (String) -> Unit,
 ) {
   BackHandler(enabled = uiState.selectedTab != BottomNavTab.CHATS) {
@@ -551,6 +583,7 @@ private fun ChatsHomeContainer(
                   puterAuthToken = uiState.puterAuthToken,
                   puterUsername = uiState.puterUsername,
                   isPuterConnected = uiState.isPuterConnected,
+                  fishAudioApiKey = uiState.fishAudioApiKey,
                   onSyncSavedRepo = onSyncSavedRepo,
                   onSaveRepo = onSaveRepo,
                   onCheckUpdates = onCheckUpdates,
@@ -558,6 +591,7 @@ private fun ChatsHomeContainer(
                   onSavePuterToken = onSavePuterToken,
                   onSelectPuterModel = onSelectPuterModel,
                   onDisconnectPuter = onDisconnectPuter,
+                  onSaveFishAudioApiKey = onSaveFishAudioApiKey,
                   onShowSnackbar = onShowSnackbar,
                 )
             }

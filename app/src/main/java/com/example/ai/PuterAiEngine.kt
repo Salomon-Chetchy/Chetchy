@@ -22,6 +22,7 @@ data class PuterChatTurn(
   val role: String, // "system", "user", "assistant"
   val content: String,
   val imageDataUrl: String? = null,
+  val extraImageDataUrls: List<String> = emptyList(),
 )
 
 data class PuterModelOption(
@@ -71,7 +72,7 @@ object PuterModels {
     availableModels.find { it.id == modelId } ?: availableModels.first()
 
   fun resolveModelForTurns(modelId: String, turns: List<PuterChatTurn>): String {
-    val hasImages = turns.any { !it.imageDataUrl.isNullOrBlank() }
+    val hasImages = turns.any { !it.imageDataUrl.isNullOrBlank() || it.extraImageDataUrls.isNotEmpty() }
     val selected = findById(modelId)
     return if (hasImages && !selected.supportsVision) DEFAULT_MODEL_ID else selected.id
   }
@@ -394,8 +395,15 @@ private fun buildMessagesJsonArray(messages: List<PuterChatTurn>): JSONArray =
       put(
         JSONObject().apply {
           put("role", turn.role)
-          val img = turn.imageDataUrl?.trim()
-          if (!img.isNullOrEmpty()) {
+          val allImages =
+            buildList {
+              turn.imageDataUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
+              turn.extraImageDataUrls.forEach { extra ->
+                val clean = extra.trim()
+                if (clean.isNotEmpty()) add(clean)
+              }
+            }
+          if (allImages.isNotEmpty()) {
             put(
               "content",
               JSONArray().apply {
@@ -407,17 +415,19 @@ private fun buildMessagesJsonArray(messages: List<PuterChatTurn>): JSONArray =
                     }
                   )
                 }
-                put(
-                  JSONObject().apply {
-                    put("type", "image_url")
-                    put(
-                      "image_url",
-                      JSONObject().apply {
-                        put("url", img)
-                      },
-                    )
-                  }
-                )
+                allImages.forEach { img ->
+                  put(
+                    JSONObject().apply {
+                      put("type", "image_url")
+                      put(
+                        "image_url",
+                        JSONObject().apply {
+                          put("url", img)
+                        },
+                      )
+                    }
+                  )
+                }
               },
             )
           } else {
