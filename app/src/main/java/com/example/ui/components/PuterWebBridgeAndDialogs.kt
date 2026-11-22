@@ -93,6 +93,16 @@ private class PuterJsAndroidInterface(
   fun onChatError(requestId: String, errorMessage: String) {
     controller.onChatError(requestId, errorMessage)
   }
+
+  @JavascriptInterface
+  fun onImageResult(requestId: String, imageDataOrUrl: String) {
+    controller.onImageResult(requestId, imageDataOrUrl)
+  }
+
+  @JavascriptInterface
+  fun onImageError(requestId: String, errorMessage: String) {
+    controller.onImageError(requestId, errorMessage)
+  }
 }
 
 private val PuterBridgeHtml =
@@ -190,6 +200,55 @@ private val PuterBridgeHtml =
           } catch (err) {
             const msg = (err && (err.message || (err.error && err.error.message) || JSON.stringify(err))) || "Puter AI error";
             AndroidPuterBridge.onChatError(requestId, String(msg));
+          }
+        };
+
+        window.chetchyPuterTxt2Img = async function (payloadJson) {
+          let requestId = "";
+          try {
+            const payload = JSON.parse(payloadJson);
+            requestId = payload.requestId || "";
+            if (!window.puter || !puter.ai || !puter.ai.txt2img) {
+              AndroidPuterBridge.onImageError(requestId, "Puter.js image generator is still loading.");
+              return;
+            }
+            if (payload.authToken && payload.authToken.length > 0 && puter.setAuthToken) {
+              puter.setAuthToken(payload.authToken);
+            }
+            const imgResult = await puter.ai.txt2img(payload.prompt);
+            let src = "";
+            if (typeof imgResult === "string") {
+              src = imgResult;
+            } else if (imgResult && imgResult.src) {
+              src = String(imgResult.src);
+            } else if (imgResult && imgResult.url) {
+              src = String(imgResult.url);
+            } else if (imgResult && imgResult.data && Array.isArray(imgResult.data) && imgResult.data[0]) {
+              const first = imgResult.data[0];
+              if (first.b64_json) {
+                src = "data:image/png;base64," + first.b64_json;
+              } else if (first.url) {
+                src = String(first.url);
+              }
+            }
+            if (src && src.indexOf("blob:") === 0) {
+              const blobResp = await fetch(src);
+              const blob = await blobResp.blob();
+              src = await new Promise(function (resolve, reject) {
+                const reader = new FileReader();
+                reader.onloadend = function () { resolve(String(reader.result || "")); };
+                reader.onerror = function () { reject(new Error("Could not read generated image.")); };
+                reader.readAsDataURL(blob);
+              });
+            }
+            if (!src) {
+              AndroidPuterBridge.onImageError(requestId, "Puter AI returned an empty image.");
+              return;
+            }
+            AndroidPuterBridge.onImageResult(requestId, src);
+          } catch (err) {
+            const msg = (err && (err.message || (err.error && err.error.message) || JSON.stringify(err))) || "Puter image generation error";
+            AndroidPuterBridge.onImageError(requestId, String(msg));
           }
         };
 

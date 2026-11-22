@@ -1,5 +1,6 @@
 package com.example.ui
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -95,7 +96,12 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.ui.components.ChatBubbleImage
 import com.example.ui.components.ChatMarkdownBlock
+import com.example.ui.components.ChatMediaAndAiToolsSheet
+import com.example.ui.components.FullScreenImageViewerDialog
+import com.example.ui.components.GenerateAiImageDialog
+import com.example.ui.components.PendingPhotoAttachmentBar
 import com.example.ui.components.RichChatMessageContent
 import com.example.ui.components.copyTextToClipboard
 import com.example.ui.components.parseChatMarkdown
@@ -149,6 +155,12 @@ fun ChatConversationScreen(
   onEndCall: () -> Unit,
   onUpdateGoalProgress: (String, Int) -> Unit,
   isAiThinking: Boolean = false,
+  isAiGeneratingImage: Boolean = false,
+  pendingPhotoUri: Uri? = null,
+  pendingPhotoIdentifyWithAi: Boolean = true,
+  onClearPendingPhoto: () -> Unit = {},
+  onTogglePendingPhotoIdentify: () -> Unit = {},
+  onGenerateAiImage: (String) -> Unit = {},
   replyingToMessage: ChatMessage? = null,
   onReplyToMessage: (ChatMessage) -> Unit = {},
   onCancelReply: () -> Unit = {},
@@ -159,6 +171,9 @@ fun ChatConversationScreen(
   var showEncryptionDialog by remember { mutableStateOf(false) }
   var showContactInfoSheet by remember { mutableStateOf(false) }
   var showEmojiStrip by remember { mutableStateOf(false) }
+  var showToolsSheet by remember { mutableStateOf(false) }
+  var showGenerateImageDialog by remember { mutableStateOf(false) }
+  var previewImageMessage by remember { mutableStateOf<ChatMessage?>(null) }
   val listState = rememberLazyListState()
   val coroutineScope = rememberCoroutineScope()
 
@@ -166,9 +181,10 @@ fun ChatConversationScreen(
     derivedStateOf { listState.canScrollForward }
   }
 
-  LaunchedEffect(messages.size, isAiThinking) {
-    val targetIndex = messages.size + (if (isAiThinking) 2 else 1)
-    if (messages.isNotEmpty() || isAiThinking) {
+  LaunchedEffect(messages.size, isAiThinking, isAiGeneratingImage) {
+    val extraItems = (if (isAiThinking) 1 else 0) + (if (isAiGeneratingImage) 1 else 0)
+    val targetIndex = messages.size + 1 + extraItems
+    if (messages.isNotEmpty() || isAiThinking || isAiGeneratingImage) {
       listState.animateScrollToItem(targetIndex)
     }
   }
@@ -299,6 +315,7 @@ fun ChatConversationScreen(
                 contact = contact,
                 isFirstInGroup = isFirstInGroup,
                 onReply = { onReplyToMessage(message) },
+                onImageClick = { previewImageMessage = message },
               )
             }
 
@@ -326,6 +343,46 @@ fun ChatConversationScreen(
                       color = AccentPurpleMuted,
                       modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                     )
+                  }
+                }
+              }
+            }
+
+            if (isAiGeneratingImage) {
+              item(key = "ai_generating_image_indicator") {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                  modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                  horizontalArrangement = Arrangement.Start,
+                ) {
+                  Surface(
+                    color = IncomingBubbleSurface,
+                    shape =
+                      RoundedCornerShape(
+                        topStart = 4.dp,
+                        topEnd = 14.dp,
+                        bottomStart = 14.dp,
+                        bottomEnd = 14.dp,
+                      ),
+                    modifier = Modifier.testTag("ai_generating_image_bubble"),
+                  ) {
+                    Row(
+                      modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                      Icon(
+                        imageVector = LucideIcons.Sparkles,
+                        contentDescription = null,
+                        tint = AccentPurpleBright,
+                        modifier = Modifier.size(16.dp),
+                      )
+                      Text(
+                        text = stringResource(R.string.ai_generating_image),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = AccentPurpleMuted,
+                      )
+                    }
                   }
                 }
               }
@@ -414,6 +471,15 @@ fun ChatConversationScreen(
             }
           }
 
+          if (pendingPhotoUri != null) {
+            PendingPhotoAttachmentBar(
+              photoUri = pendingPhotoUri,
+              identifyWithAi = pendingPhotoIdentifyWithAi,
+              onToggleIdentify = onTogglePendingPhotoIdentify,
+              onClear = onClearPendingPhoto,
+            )
+          }
+
           if (replyingToMessage != null) {
             ReplyComposerPreview(
               message = replyingToMessage,
@@ -424,10 +490,11 @@ fun ChatConversationScreen(
 
           ChatBottomInputBar(
             inputText = inputText,
+            hasAttachment = pendingPhotoUri != null,
             onInputChange = onInputChange,
             onPlusClick = {
               onDismissTooltip()
-              onAttachMedia()
+              showToolsSheet = true
             },
             onEmojiToggle = { showEmojiStrip = !showEmojiStrip },
             onCameraClick = {
@@ -628,6 +695,42 @@ fun ChatConversationScreen(
           }
         }
       }
+    }
+  }
+
+  if (showToolsSheet) {
+    ChatMediaAndAiToolsSheet(
+      onIdentifyPhotoClick = {
+        showToolsSheet = false
+        onAttachMedia()
+      },
+      onGenerateImageClick = {
+        showToolsSheet = false
+        showGenerateImageDialog = true
+      },
+      onDismiss = { showToolsSheet = false },
+    )
+  }
+
+  if (showGenerateImageDialog) {
+    GenerateAiImageDialog(
+      onDismiss = { showGenerateImageDialog = false },
+      onGenerate = { prompt ->
+        showGenerateImageDialog = false
+        onGenerateAiImage(prompt)
+      },
+    )
+  }
+
+  previewImageMessage?.let { previewMsg ->
+    val uri = previewMsg.imageUri
+    if (!uri.isNullOrBlank()) {
+      FullScreenImageViewerDialog(
+        imageUri = uri,
+        caption = stripChatMarkdown(previewMsg.text),
+        isAiGenerated = previewMsg.mediaLabel == "AI Image",
+        onDismiss = { previewImageMessage = null },
+      )
     }
   }
 }
@@ -889,6 +992,7 @@ private fun ChatBubbleRow(
   contact: Contact,
   isFirstInGroup: Boolean,
   onReply: () -> Unit,
+  onImageClick: (ChatMessage) -> Unit = {},
 ) {
   val context = LocalContext.current
   val density = LocalDensity.current
@@ -898,6 +1002,7 @@ private fun ChatBubbleRow(
   val hasCodeBlock = remember(message.text) {
     splitChatMarkdownBlocks(message.text).any { it is ChatMarkdownBlock.Code }
   }
+  val hasImage = !message.imageUri.isNullOrBlank()
   val tailInsetStart = if (!message.isOutgoing && isFirstInGroup) 8.dp else 0.dp
   val tailInsetEnd = if (message.isOutgoing && isFirstInGroup) 8.dp else 0.dp
   val horizontalPadStart = if (!message.isOutgoing && !isFirstInGroup) 8.dp else 0.dp
@@ -919,7 +1024,7 @@ private fun ChatBubbleRow(
         shadowElevation = 0.5.dp,
         modifier =
           Modifier
-            .widthIn(max = if (hasCodeBlock) 340.dp else 300.dp)
+            .widthIn(max = if (hasCodeBlock) 340.dp else if (hasImage) 310.dp else 300.dp)
             .clip(bubbleShape)
             .combinedClickable(
               onClick = { showBubbleActions = true },
@@ -972,7 +1077,33 @@ private fun ChatBubbleRow(
             }
           }
 
-          if (message.mediaLabel == "Voice") {
+          if (hasImage && message.imageUri != null) {
+            ChatBubbleImage(
+              imageUri = message.imageUri,
+              contentDescription = stripChatMarkdown(message.text).ifBlank { contact.displayName },
+              isAiGenerated = message.mediaLabel == "AI Image",
+              onClick = { onImageClick(message) },
+            )
+            if (message.text.isNotBlank() && message.text != "Photo") {
+              val formattedCaption =
+                remember(message.text, message.isOutgoing) {
+                  parseChatMarkdown(
+                    rawText = message.text,
+                    codeBackground = Color(0x550D1117),
+                    codeTextColor = AccentPurpleMuted,
+                    accentColor = if (message.isOutgoing) OnAccentPurple else AccentPurpleBright,
+                    quoteColor = WhatsAppTextSecondary,
+                  )
+                }
+              Text(
+                text = formattedCaption,
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.5.sp, lineHeight = 19.5.sp),
+                color = WhatsAppTextPrimary,
+                modifier = Modifier.padding(top = 6.dp),
+              )
+            }
+            BubbleMetaRow(message = message, modifier = Modifier.align(Alignment.End).padding(top = 4.dp))
+          } else if (message.mediaLabel == "Voice") {
             VoiceNoteBubbleContent(
               message = message,
               contact = contact,
@@ -1352,6 +1483,7 @@ private fun MediaTooltipBubble(
 @Composable
 private fun ChatBottomInputBar(
   inputText: String,
+  hasAttachment: Boolean = false,
   onInputChange: (String) -> Unit,
   onPlusClick: () -> Unit,
   onEmojiToggle: () -> Unit,
@@ -1423,7 +1555,7 @@ private fun ChatBottomInputBar(
         )
       }
 
-      if (inputText.isBlank()) {
+      if (inputText.isBlank() && !hasAttachment) {
         IconButton(
           onClick = onCameraClick,
           modifier = Modifier.size(36.dp).testTag("chat_camera_button"),
@@ -1439,7 +1571,7 @@ private fun ChatBottomInputBar(
     }
 
     // Floating circular Mic / Send button matching screenshot
-    if (inputText.isBlank()) {
+    if (inputText.isBlank() && !hasAttachment) {
       Box(
         modifier =
           Modifier

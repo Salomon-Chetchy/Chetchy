@@ -1133,44 +1133,6 @@ object LucideIcons {
     }
   }
 
-  // Lucide: archive
-  val Archive: ImageVector by lazy {
-    lucideIcon("Archive") {
-      path(
-        stroke = SolidColor(Color.Black),
-        strokeLineWidth = 1.9f,
-        strokeLineCap = StrokeCap.Round,
-        strokeLineJoin = StrokeJoin.Round,
-      ) {
-        moveTo(3f, 4f)
-        horizontalLineTo(21f)
-        arcTo(1f, 1f, 0f, false, true, 22f, 5f)
-        verticalLineTo(7f)
-        arcTo(1f, 1f, 0f, false, true, 21f, 8f)
-        horizontalLineTo(3f)
-        arcTo(1f, 1f, 0f, false, true, 2f, 7f)
-        verticalLineTo(5f)
-        arcTo(1f, 1f, 0f, false, true, 3f, 4f)
-        close()
-      }
-      path(
-        stroke = SolidColor(Color.Black),
-        strokeLineWidth = 1.9f,
-        strokeLineCap = StrokeCap.Round,
-        strokeLineJoin = StrokeJoin.Round,
-      ) {
-        moveTo(4f, 8f)
-        verticalLineTo(19f)
-        arcTo(2f, 2f, 0f, false, false, 6f, 21f)
-        horizontalLineTo(18f)
-        arcTo(2f, 2f, 0f, false, false, 20f, 19f)
-        verticalLineTo(8f)
-        moveTo(10f, 12f)
-        horizontalLineTo(14f)
-      }
-    }
-  }
-
   // Lucide: message-square-plus (floating New chat FAB icon)
   val MessageSquarePlus: ImageVector by lazy {
     lucideIcon("MessageSquarePlus") {
@@ -1373,6 +1335,44 @@ object LucideIcons {
         lineTo(6f, 16f)
         moveTo(14.5f, 4f)
         lineTo(9.5f, 20f)
+      }
+    }
+  }
+
+  // Lucide: sparkles
+  val Sparkles: ImageVector by lazy {
+    lucideIcon("Sparkles") {
+      path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.9f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round,
+      ) {
+        moveTo(9.937f, 15.5f)
+        arcTo(2f, 2f, 0f, false, false, 8.5f, 14.063f)
+        lineTo(2.365f, 12.482f)
+        arcTo(0.5f, 0.5f, 0f, false, true, 2.365f, 11.518f)
+        lineTo(8.5f, 9.937f)
+        arcTo(2f, 2f, 0f, false, false, 9.937f, 8.5f)
+        lineTo(11.518f, 2.365f)
+        arcTo(0.5f, 0.5f, 0f, false, true, 12.482f, 2.365f)
+        lineTo(14.063f, 8.5f)
+        arcTo(2f, 2f, 0f, false, false, 15.5f, 9.937f)
+        lineTo(21.635f, 11.518f)
+        arcTo(0.5f, 0.5f, 0f, false, true, 21.635f, 12.482f)
+        lineTo(15.5f, 14.063f)
+        arcTo(2f, 2f, 0f, false, false, 14.063f, 15.5f)
+        lineTo(12.482f, 21.635f)
+        arcTo(0.5f, 0.5f, 0f, false, true, 11.518f, 21.635f)
+        close()
+        moveTo(20f, 3f)
+        verticalLineTo(7f)
+        moveTo(22f, 5f)
+        horizontalLineTo(18f)
+        moveTo(4f, 17f)
+        verticalLineTo(20f)
+        moveTo(5.5f, 18.5f)
+        horizontalLineTo(2.5f)
       }
     }
   }

@@ -9,6 +9,7 @@ import com.example.ai.HybridPuterAiEngine
 import com.example.ai.PuterAiEngine
 import com.example.ai.PuterAiResult
 import com.example.ai.PuterChatTurn
+import com.example.ai.PuterImageResult
 import com.example.ai.PuterModels
 import com.example.ai.PuterWebBridgeController
 import com.example.update.AppUpdateClient
@@ -95,6 +96,7 @@ data class ChatMessage(
   val timestampLabel: String,
   val isOutgoing: Boolean = true,
   val mediaLabel: String? = null,
+  val imageUri: String? = null,
   val replyToSender: String? = null,
   val replyToText: String? = null,
 )
@@ -218,8 +220,6 @@ data class ChatsUiState(
   val channels: List<ChannelItem> = emptyList(),
   val activeChannelId: String? = null,
   val chatListSearchQuery: String = "",
-  val archivedContactIds: Set<String> = emptySet(),
-  val showArchivedChats: Boolean = false,
   val githubRepoSlug: String = UpdatePreferences.DEFAULT_REPO_SLUG,
   val updateCheckState: UpdateCheckUiState = UpdateCheckUiState.Idle,
   val puterModelId: String = PuterModels.DEFAULT_MODEL_ID,
@@ -227,6 +227,9 @@ data class ChatsUiState(
   val puterUsername: String? = null,
   val isPuterWebSignedIn: Boolean = false,
   val aiThinkingContactId: String? = null,
+  val aiGeneratingImageContactId: String? = null,
+  val pendingPhotoUri: Uri? = null,
+  val pendingPhotoIdentifyWithAi: Boolean = true,
   val showPuterConnectPrompt: Boolean = false,
   val replyingToMessage: ChatMessage? = null,
   val snackbarMessage: String? = null,
@@ -259,25 +262,14 @@ data class ChatsUiState(
         if (last != null) contact to last else null
       }
 
-  val archivedConversationsCount: Int
-    get() = conversationsWithMessages.count { (contact, _) -> contact.id in archivedContactIds }
-
   val visibleConversations: List<Pair<Contact, ChatMessage>>
     get() {
       val q = chatListSearchQuery.trim().lowercase()
+      if (q.isEmpty()) return conversationsWithMessages
       return conversationsWithMessages.filter { (contact, lastMessage) ->
-        val matchesArchive =
-          if (showArchivedChats) {
-            contact.id in archivedContactIds
-          } else {
-            contact.id !in archivedContactIds
-          }
-        val matchesQuery =
-          q.isEmpty() ||
-            contact.displayName.lowercase().contains(q) ||
-            contact.formattedPhone.lowercase().contains(q) ||
-            lastMessage.text.lowercase().contains(q)
-        matchesArchive && matchesQuery
+        contact.displayName.lowercase().contains(q) ||
+          contact.formattedPhone.lowercase().contains(q) ||
+          lastMessage.text.lowercase().contains(q)
       }
     }
 }
@@ -429,29 +421,6 @@ class ChatsViewModel(
     _uiState.update { it.copy(chatListSearchQuery = query) }
   }
 
-  fun toggleArchivedFilter(show: Boolean? = null) {
-    _uiState.update { state ->
-      val next = show ?: !state.showArchivedChats
-      state.copy(showArchivedChats = next)
-    }
-  }
-
-  fun toggleArchiveChat(contactId: String) {
-    _uiState.update { state ->
-      val wasArchived = contactId in state.archivedContactIds
-      val updated =
-        if (wasArchived) {
-          state.archivedContactIds - contactId
-        } else {
-          state.archivedContactIds + contactId
-        }
-      state.copy(
-        archivedContactIds = updated,
-        snackbarMessage = if (wasArchived) "Chat unarchived" else "Chat archived",
-      )
-    }
-  }
-
   fun updateFirstName(value: String) {
     _uiState.update { it.copy(newContactDraft = it.newContactDraft.copy(firstName = value)) }
   }
@@ -534,6 +503,7 @@ class ChatsViewModel(
         activeChatContactId = contactId,
         chatInputText = "",
         activeCallType = null,
+        pendingPhotoUri = null,
       )
     }
   }
@@ -545,6 +515,7 @@ class ChatsViewModel(
         chatInputText = "",
         activeCallType = null,
         replyingToMessage = null,
+        pendingPhotoUri = null,
       )
     }
   }
@@ -576,22 +547,55 @@ class ChatsViewModel(
     _uiState.update { it.copy(chatInputText = it.chatInputText + emoji) }
   }
 
-  fun sendMessage() {
+  fun clearPendingPhoto() {
+    _uiState.update { it.copy(pendingPhotoUri = null) }
+  }
+
+  fun togglePendingPhotoIdentify() {
+    _uiState.update { it.copy(pendingPhotoIdentifyWithAi = !it.pendingPhotoIdentifyWithAi) }
+  }
+
+  fun sendMessage(
+    imageEncoder: (suspend (Uri) -> String?)? = null,
+    imagePersister: (suspend (String) -> String)? = null,
+  ) {
     val state = _uiState.value
     val contactId = state.activeChatContactId ?: return
-    val text = state.chatInputText.trim()
-    if (text.isEmpty()) return
+    val rawText = state.chatInputText.trim()
+    val pendingPhoto = state.pendingPhotoUri
+
+    if (pendingPhoto == null && rawText.startsWith("/imagine ", ignoreCase = true)) {
+      val imaginePrompt = rawText.substring(9).trim()
+      if (imaginePrompt.isNotEmpty()) {
+        _uiState.update { it.copy(chatInputText = "") }
+        generateAiImage(prompt = imaginePrompt, imagePersister = imagePersister)
+        return
+      }
+    }
+
+    if (rawText.isEmpty() && pendingPhoto == null) return
 
     val contact = state.contacts.find { it.id == contactId } ?: return
     val replyingTo = state.replyingToMessage
+    val effectiveText =
+      rawText.ifEmpty {
+        if (state.pendingPhotoIdentifyWithAi) {
+          "Identify and explain what is in this photo."
+        } else {
+          "Photo"
+        }
+      }
+    val shouldIdentifyPhoto = pendingPhoto != null && state.pendingPhotoIdentifyWithAi
 
     val userMsg =
       ChatMessage(
         id = UUID.randomUUID().toString(),
         contactId = contactId,
-        text = text,
+        text = effectiveText,
         timestampLabel = timeFormatter.format(Date()),
         isOutgoing = true,
+        mediaLabel = if (pendingPhoto != null) "Photo" else null,
+        imageUri = pendingPhoto?.toString(),
         replyToSender =
           replyingTo?.let { if (it.isOutgoing) "You" else contact.displayName },
         replyToText = replyingTo?.text,
@@ -603,14 +607,42 @@ class ChatsViewModel(
         messagesByContact = current.messagesByContact + (contactId to (existing + userMsg)),
         chatInputText = "",
         replyingToMessage = null,
+        pendingPhotoUri = null,
       )
     }
 
-    // If contact has an AI identity, generate Puter AI response
-    if (contact.aiIdentity.isNotBlank()) {
+    // Trigger Puter AI reply when talking to an AI persona or when photo identification is requested
+    if (contact.aiIdentity.isNotBlank() || shouldIdentifyPhoto) {
       viewModelScope.launch {
         _uiState.update { it.copy(aiThinkingContactId = contactId) }
         try {
+          val encodedImageDataUrl =
+            if (shouldIdentifyPhoto && pendingPhoto != null) {
+              imageEncoder?.invoke(pendingPhoto)
+            } else {
+              null
+            }
+
+          if (shouldIdentifyPhoto && encodedImageDataUrl.isNullOrBlank()) {
+            val encodeErrMsg =
+              ChatMessage(
+                id = UUID.randomUUID().toString(),
+                contactId = contactId,
+                text = "Could not read that photo for identification. Please try another image.",
+                timestampLabel = timeFormatter.format(Date()),
+                isOutgoing = false,
+              )
+            _uiState.update { current ->
+              val existing = current.messagesByContact[contactId].orEmpty()
+              current.copy(
+                messagesByContact = current.messagesByContact + (contactId to (existing + encodeErrMsg)),
+                aiThinkingContactId =
+                  if (current.aiThinkingContactId == contactId) null else current.aiThinkingContactId,
+              )
+            }
+            return@launch
+          }
+
           val goalContext =
             if (!contact.goalTitle.isNullOrBlank()) {
               "\nThe user's active goal with you is: \"${contact.goalTitle}\" (Current progress: ${contact.goalProgress}%). Provide encouraging mentorship, practical next steps, and check in on their goal."
@@ -618,19 +650,35 @@ class ChatsViewModel(
               ""
             }
 
+          val visionGuidance =
+            if (encodedImageDataUrl != null) {
+              "\nWhen analyzing an image, clearly identify objects, scenes, brands/species if recognizable, read any visible text accurately, and directly answer the user's question."
+            } else {
+              ""
+            }
+
+          val personaIntro =
+            if (contact.aiIdentity.isNotBlank()) {
+              "You are ${contact.displayName}. ${contact.aiIdentity}$goalContext"
+            } else {
+              "You are a helpful AI vision assistant in Chats."
+            }
+
           val systemInstruction =
             """
-            You are ${contact.displayName}. ${contact.aiIdentity}$goalContext
+            $personaIntro$visionGuidance
             Keep your replies concise, warm, and natural like a real chat message.
             When helpful for clarity or emphasis, format text with **bold**, *italic*, ~~strikethrough~~, `inline code`, > quotes, or bullet/numbered lists.
             Whenever sharing multi-line code or commands, wrap them in fenced Markdown code blocks with the language name (for example ```python or ```kotlin).
             """.trimIndent()
 
+          val recentMessages = _uiState.value.messagesByContact[contactId].orEmpty().takeLast(12)
           val historyTurns =
-            _uiState.value.messagesByContact[contactId].orEmpty().takeLast(12).map { msg ->
+            recentMessages.map { msg ->
               PuterChatTurn(
                 role = if (msg.isOutgoing) "user" else "assistant",
                 content = msg.text,
+                imageDataUrl = if (msg.id == userMsg.id) encodedImageDataUrl else null,
               )
             }
 
@@ -730,6 +778,134 @@ class ChatsViewModel(
                 if (current.aiThinkingContactId == contactId) null else current.aiThinkingContactId,
             )
           }
+        }
+      }
+    }
+  }
+
+  fun generateAiImage(
+    prompt: String,
+    imagePersister: (suspend (String) -> String)? = null,
+  ) {
+    val cleanPrompt = prompt.trim()
+    val state = _uiState.value
+    val contactId = state.activeChatContactId ?: return
+    if (cleanPrompt.isEmpty()) return
+
+    val promptMsg =
+      ChatMessage(
+        id = UUID.randomUUID().toString(),
+        contactId = contactId,
+        text = "Generate image: **$cleanPrompt**",
+        timestampLabel = timeFormatter.format(Date()),
+        isOutgoing = true,
+      )
+
+    _uiState.update { current ->
+      val existing = current.messagesByContact[contactId].orEmpty()
+      current.copy(
+        messagesByContact = current.messagesByContact + (contactId to (existing + promptMsg)),
+        aiGeneratingImageContactId = contactId,
+      )
+    }
+
+    viewModelScope.launch {
+      try {
+        val currentSnapshot = _uiState.value
+        val result =
+          withTimeout(80_000L) {
+            puterAiEngine.generateImage(
+              prompt = cleanPrompt,
+              authToken = currentSnapshot.puterAuthToken,
+            )
+          }
+
+        when (result) {
+          is PuterImageResult.Success -> {
+            val savedUri = imagePersister?.invoke(result.imageUrlOrDataUri) ?: result.imageUrlOrDataUri
+            val imageMsg =
+              ChatMessage(
+                id = UUID.randomUUID().toString(),
+                contactId = contactId,
+                text = cleanPrompt,
+                timestampLabel = timeFormatter.format(Date()),
+                isOutgoing = false,
+                mediaLabel = "AI Image",
+                imageUri = savedUri,
+              )
+            _uiState.update { current ->
+              val existing = current.messagesByContact[contactId].orEmpty()
+              current.copy(
+                messagesByContact = current.messagesByContact + (contactId to (existing + imageMsg)),
+                aiGeneratingImageContactId =
+                  if (current.aiGeneratingImageContactId == contactId) null else current.aiGeneratingImageContactId,
+              )
+            }
+          }
+          is PuterImageResult.AuthRequired -> {
+            val authMsg =
+              ChatMessage(
+                id = UUID.randomUUID().toString(),
+                contactId = contactId,
+                text = "Puter AI sign-in needed: ${result.message}",
+                timestampLabel = timeFormatter.format(Date()),
+                isOutgoing = false,
+              )
+            _uiState.update { current ->
+              val existing = current.messagesByContact[contactId].orEmpty()
+              current.copy(
+                messagesByContact = current.messagesByContact + (contactId to (existing + authMsg)),
+                aiGeneratingImageContactId =
+                  if (current.aiGeneratingImageContactId == contactId) null else current.aiGeneratingImageContactId,
+                showPuterConnectPrompt = true,
+              )
+            }
+          }
+          is PuterImageResult.Error -> {
+            val errorMsg =
+              ChatMessage(
+                id = UUID.randomUUID().toString(),
+                contactId = contactId,
+                text = "Image generation failed: ${result.message}",
+                timestampLabel = timeFormatter.format(Date()),
+                isOutgoing = false,
+              )
+            _uiState.update { current ->
+              val existing = current.messagesByContact[contactId].orEmpty()
+              current.copy(
+                messagesByContact = current.messagesByContact + (contactId to (existing + errorMsg)),
+                aiGeneratingImageContactId =
+                  if (current.aiGeneratingImageContactId == contactId) null else current.aiGeneratingImageContactId,
+              )
+            }
+          }
+        }
+      } catch (e: TimeoutCancellationException) {
+        Log.e(TAG, "Puter image generation timed out", e)
+        _uiState.update { current ->
+          current.copy(
+            aiGeneratingImageContactId =
+              if (current.aiGeneratingImageContactId == contactId) null else current.aiGeneratingImageContactId,
+            snackbarMessage = "AI image generation timed out. Please try again.",
+          )
+        }
+      } catch (e: Exception) {
+        Log.e(TAG, "Puter image generation failed", e)
+        val errorMsg =
+          ChatMessage(
+            id = UUID.randomUUID().toString(),
+            contactId = contactId,
+            text = "Could not generate image (${e.localizedMessage ?: "network error"}).",
+            timestampLabel = timeFormatter.format(Date()),
+            isOutgoing = false,
+          )
+        _uiState.update { current ->
+          val existing = current.messagesByContact[contactId].orEmpty()
+          current.copy(
+            messagesByContact = current.messagesByContact + (contactId to (existing + errorMsg)),
+            aiGeneratingImageContactId =
+              if (current.aiGeneratingImageContactId == contactId) null else current.aiGeneratingImageContactId,
+          )
         }
       }
     }
@@ -874,22 +1050,13 @@ class ChatsViewModel(
     val state = _uiState.value
     val contactId = state.activeChatContactId
     if (contactId != null) {
-      val msg =
-        ChatMessage(
-          id = UUID.randomUUID().toString(),
-          contactId = contactId,
-          text = "Photo attachment",
-          timestampLabel = timeFormatter.format(Date()),
-          isOutgoing = true,
-          mediaLabel = "Photo",
-        )
       _uiState.update { current ->
-        val existing = current.messagesByContact[contactId].orEmpty()
         current.copy(
           selectedPhotoUri = uri,
+          pendingPhotoUri = uri,
+          pendingPhotoIdentifyWithAi = true,
           activeSheet = null,
           showMediaTooltip = false,
-          messagesByContact = current.messagesByContact + (contactId to (existing + msg)),
         )
       }
     } else if (state.selectedTab == BottomNavTab.UPDATES) {

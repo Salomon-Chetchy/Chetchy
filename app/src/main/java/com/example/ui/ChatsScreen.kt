@@ -70,6 +70,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.BuildConfig
 import com.example.R
+import com.example.ai.PuterImageStorage
 import com.example.ai.PuterPreferences
 import com.example.ui.components.ActiveChatsListContent
 import com.example.ui.components.ChetchyBottomNavigationBar
@@ -178,7 +179,12 @@ fun ChatsScreen(
           onBack = viewModel::closeChatScreen,
           onInputChange = viewModel::updateChatInput,
           onAppendEmoji = viewModel::appendEmoji,
-          onSendMessage = viewModel::sendMessage,
+          onSendMessage = {
+            viewModel.sendMessage(
+              imageEncoder = { uri -> PuterImageStorage.encodeUriToDataUrl(context, uri) },
+              imagePersister = { raw -> PuterImageStorage.persistGeneratedImageIfDataUri(context, raw) },
+            )
+          },
           onAttachMedia = {
             photoPickerLauncher.launch(
               PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -190,6 +196,17 @@ fun ChatsScreen(
           onEndCall = viewModel::endCall,
           onUpdateGoalProgress = viewModel::updateGoalProgress,
           isAiThinking = uiState.aiThinkingContactId == activeChatContact.id,
+          isAiGeneratingImage = uiState.aiGeneratingImageContactId == activeChatContact.id,
+          pendingPhotoUri = uiState.pendingPhotoUri,
+          pendingPhotoIdentifyWithAi = uiState.pendingPhotoIdentifyWithAi,
+          onClearPendingPhoto = viewModel::clearPendingPhoto,
+          onTogglePendingPhotoIdentify = viewModel::togglePendingPhotoIdentify,
+          onGenerateAiImage = { prompt ->
+            viewModel.generateAiImage(
+              prompt = prompt,
+              imagePersister = { raw -> PuterImageStorage.persistGeneratedImageIfDataUri(context, raw) },
+            )
+          },
           replyingToMessage = uiState.replyingToMessage,
           onReplyToMessage = viewModel::startReplyingTo,
           onCancelReply = viewModel::cancelReply,
@@ -213,8 +230,6 @@ fun ChatsScreen(
           onOpenConversation = viewModel::openChatWithContact,
           onShareInvite = shareInvite,
           onChatListSearchChange = viewModel::updateChatListSearchQuery,
-          onToggleArchivedFilter = { viewModel.toggleArchivedFilter() },
-          onToggleArchiveChat = { contact -> viewModel.toggleArchiveChat(contact.id) },
           onMyStatusClick = {
             if (uiState.myStatuses.isEmpty()) {
               viewModel.openStatusTypeChooser()
@@ -406,8 +421,6 @@ private fun ChatsHomeContainer(
   onOpenConversation: (String) -> Unit,
   onShareInvite: () -> Unit,
   onChatListSearchChange: (String) -> Unit,
-  onToggleArchivedFilter: () -> Unit,
-  onToggleArchiveChat: (Contact) -> Unit,
   onMyStatusClick: () -> Unit,
   onAddPhotoStatusClick: () -> Unit,
   onAddTextStatusClick: () -> Unit,
@@ -425,12 +438,8 @@ private fun ChatsHomeContainer(
   onDisconnectPuter: () -> Unit,
   onShowSnackbar: (String) -> Unit,
 ) {
-  BackHandler(enabled = uiState.selectedTab != BottomNavTab.CHATS || uiState.showArchivedChats) {
-    if (uiState.selectedTab == BottomNavTab.CHATS && uiState.showArchivedChats) {
-      onToggleArchivedFilter()
-    } else {
-      onSelectTab(BottomNavTab.CHATS)
-    }
+  BackHandler(enabled = uiState.selectedTab != BottomNavTab.CHATS) {
+    onSelectTab(BottomNavTab.CHATS)
   }
 
   BoxWithConstraints(modifier = Modifier.fillMaxSize().background(WhatsAppBackground)) {
@@ -455,7 +464,6 @@ private fun ChatsHomeContainer(
             isChatsTab = uiState.selectedTab == BottomNavTab.CHATS,
             onCameraClick = onOpenCamera,
             onNewChatClick = onOpenNewChat,
-            onToggleArchivedClick = onToggleArchivedFilter,
             onOpenSettingsClick = { onSelectTab(BottomNavTab.SETTINGS) },
           )
         },
@@ -501,13 +509,9 @@ private fun ChatsHomeContainer(
                 ActiveChatsListContent(
                   conversations = uiState.visibleConversations,
                   hasMyStatuses = uiState.myStatuses.isNotEmpty(),
-                  isViewingArchived = uiState.showArchivedChats,
-                  archivedCount = uiState.archivedConversationsCount,
                   searchQuery = uiState.chatListSearchQuery,
                   onSearchQueryChange = onChatListSearchChange,
-                  onToggleArchived = onToggleArchivedFilter,
                   onConversationClick = { contact -> onOpenConversation(contact.id) },
-                  onToggleArchiveChat = onToggleArchiveChat,
                   onStartChattingClick = onOpenNewChat,
                   onInviteFriendClick = onShareInvite,
                   emptyHeroContent = {

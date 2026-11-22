@@ -1,11 +1,9 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -82,7 +80,6 @@ fun ChetchyTopBar(
   isChatsTab: Boolean,
   onCameraClick: () -> Unit,
   onNewChatClick: () -> Unit,
-  onToggleArchivedClick: () -> Unit,
   onOpenSettingsClick: () -> Unit,
 ) {
   var menuExpanded by remember { mutableStateOf(false) }
@@ -155,18 +152,6 @@ fun ChetchyTopBar(
               onClick = {
                 menuExpanded = false
                 onNewChatClick()
-              },
-            )
-            DropdownMenuItem(
-              text = {
-                Text(
-                  text = stringResource(R.string.chats_menu_archived),
-                  color = WhatsAppTextPrimary,
-                )
-              },
-              onClick = {
-                menuExpanded = false
-                onToggleArchivedClick()
               },
             )
             DropdownMenuItem(
@@ -256,69 +241,12 @@ fun ChatsSearchPillBar(
 }
 
 @Composable
-fun ArchivedChatsRow(
-  archivedCount: Int,
-  isViewingArchived: Boolean,
-  onClick: () -> Unit,
-) {
-  Row(
-    modifier =
-      Modifier
-        .fillMaxWidth()
-        .minimumInteractiveComponentSize()
-        .clickable(
-          interactionSource = remember { MutableInteractionSource() },
-          indication = ripple(bounded = true),
-          onClick = onClick,
-        )
-        .padding(horizontal = 16.dp, vertical = 11.dp)
-        .testTag("archived_row"),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Box(
-      modifier = Modifier.width(50.dp),
-      contentAlignment = Alignment.Center,
-    ) {
-      Icon(
-        imageVector = LucideIcons.Archive,
-        contentDescription = null,
-        tint = if (isViewingArchived) AccentPurpleBright else WhatsAppTextSecondary,
-        modifier = Modifier.size(20.dp),
-      )
-    }
-    Spacer(modifier = Modifier.width(14.dp))
-    Text(
-      text = stringResource(R.string.chats_archived_label),
-      style =
-        MaterialTheme.typography.titleMedium.copy(
-          fontSize = 16.sp,
-          fontWeight = FontWeight.Medium,
-        ),
-      color = if (isViewingArchived) AccentPurpleBright else WhatsAppTextSecondary,
-      modifier = Modifier.weight(1f),
-    )
-    if (archivedCount > 0) {
-      Text(
-        text = archivedCount.toString(),
-        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-        color = AccentPurpleBright,
-      )
-    }
-  }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
 fun ActiveChatsListContent(
   conversations: List<Pair<Contact, ChatMessage>>,
   hasMyStatuses: Boolean,
-  isViewingArchived: Boolean,
-  archivedCount: Int,
   searchQuery: String,
   onSearchQueryChange: (String) -> Unit,
-  onToggleArchived: () -> Unit,
   onConversationClick: (Contact) -> Unit,
-  onToggleArchiveChat: (Contact) -> Unit,
   onStartChattingClick: () -> Unit,
   onInviteFriendClick: () -> Unit,
   emptyHeroContent: @Composable () -> Unit,
@@ -334,52 +262,9 @@ fun ActiveChatsListContent(
       )
     }
 
-    item(key = "archived_row") {
-      ArchivedChatsRow(
-        archivedCount = archivedCount,
-        isViewingArchived = isViewingArchived,
-        onClick = onToggleArchived,
-      )
-    }
-
-    if (isViewingArchived) {
-      item(key = "archived_back_banner") {
-        Row(
-          modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Text(
-            text = stringResource(R.string.chats_menu_archived),
-            style = MaterialTheme.typography.labelMedium,
-            color = AccentPurpleMuted,
-          )
-          TextButton(
-            onClick = onToggleArchived,
-            modifier = Modifier.testTag("back_to_all_chats_button"),
-          ) {
-            Text(
-              text = stringResource(R.string.chats_back_to_all),
-              color = AccentPurpleBright,
-              style = MaterialTheme.typography.labelMedium,
-            )
-          }
-        }
-      }
-    }
-
     if (conversations.isEmpty()) {
       item(key = "empty_state") {
         when {
-          isViewingArchived -> {
-            Text(
-              text = stringResource(R.string.chats_archived_empty),
-              style = MaterialTheme.typography.bodyMedium,
-              color = WhatsAppTextSecondary,
-              textAlign = TextAlign.Center,
-              modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 40.dp),
-            )
-          }
           searchQuery.isNotBlank() -> {
             Column(
               modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 36.dp),
@@ -407,132 +292,104 @@ fun ActiveChatsListContent(
       }
     } else {
       items(conversations, key = { it.first.id }) { (contact, lastMessage) ->
-        var showRowMenu by remember { mutableStateOf(false) }
         val showPurpleRing = contact.isSelf && hasMyStatuses
 
-        Box(modifier = Modifier.fillMaxWidth()) {
-          Row(
+        Row(
+          modifier =
+            Modifier
+              .fillMaxWidth()
+              .minimumInteractiveComponentSize()
+              .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(bounded = true),
+                onClick = { onConversationClick(contact) },
+              )
+              .padding(horizontal = 16.dp, vertical = 10.dp)
+              .testTag("conversation_row_${contact.id}"),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Box(
             modifier =
               Modifier
-                .fillMaxWidth()
-                .minimumInteractiveComponentSize()
-                .combinedClickable(
-                  interactionSource = remember { MutableInteractionSource() },
-                  indication = ripple(bounded = true),
-                  onClick = { onConversationClick(contact) },
-                  onLongClick = { showRowMenu = true },
-                )
-                .padding(horizontal = 16.dp, vertical = 10.dp)
-                .testTag("conversation_row_${contact.id}"),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Box(
-              modifier =
-                Modifier
-                  .size(52.dp)
-                  .let { mod ->
-                    if (showPurpleRing) {
-                      mod.border(BorderStroke(2.dp, AccentPurple), CircleShape).padding(3.dp)
-                    } else {
-                      mod
-                    }
+                .size(52.dp)
+                .let { mod ->
+                  if (showPurpleRing) {
+                    mod.border(BorderStroke(2.dp, AccentPurple), CircleShape).padding(3.dp)
+                  } else {
+                    mod
                   }
-                  .clip(CircleShape)
-                  .background(AccentPurpleSoftDark),
-              contentAlignment = Alignment.Center,
-            ) {
-              if (contact.initials.isNotEmpty() && !contact.isSelf) {
-                Text(
-                  text = contact.initials,
-                  style = MaterialTheme.typography.titleMedium,
-                  color = AccentPurpleMuted,
-                )
-              } else {
-                Icon(
-                  imageVector = LucideIcons.User,
-                  contentDescription = null,
-                  tint = AccentPurpleMuted,
-                  modifier = Modifier.size(24.dp),
-                )
-              }
-            }
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-              ) {
-                Text(
-                  text = contact.displayName,
-                  style =
-                    MaterialTheme.typography.titleMedium.copy(
-                      fontSize = 16.5.sp,
-                      fontWeight = FontWeight.SemiBold,
-                    ),
-                  color = WhatsAppTextPrimary,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                  modifier = Modifier.weight(1f),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                  text = lastMessage.timestampLabel,
-                  style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                  color = WhatsAppTextSecondary,
-                )
-              }
-              Spacer(modifier = Modifier.height(3.dp))
-              Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                  imageVector = LucideIcons.CheckCheck,
-                  contentDescription = null,
-                  tint = AccentPurpleBright,
-                  modifier = Modifier.size(16.dp),
-                )
-                Spacer(modifier = Modifier.width(5.dp))
-                if (lastMessage.mediaLabel == "Voice") {
-                  Icon(
-                    imageVector = LucideIcons.Mic,
-                    contentDescription = null,
-                    tint = WhatsAppTextSecondary,
-                    modifier = Modifier.size(14.dp),
-                  )
-                  Spacer(modifier = Modifier.width(4.dp))
                 }
-                Text(
-                  text = stripChatMarkdown(lastMessage.text).replace('\n', ' '),
-                  style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.5.sp),
-                  color = WhatsAppTextSecondary,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                )
-              }
+                .clip(CircleShape)
+                .background(AccentPurpleSoftDark),
+            contentAlignment = Alignment.Center,
+          ) {
+            if (contact.initials.isNotEmpty() && !contact.isSelf) {
+              Text(
+                text = contact.initials,
+                style = MaterialTheme.typography.titleMedium,
+                color = AccentPurpleMuted,
+              )
+            } else {
+              Icon(
+                imageVector = LucideIcons.User,
+                contentDescription = null,
+                tint = AccentPurpleMuted,
+                modifier = Modifier.size(24.dp),
+              )
             }
           }
-
-          DropdownMenu(
-            expanded = showRowMenu,
-            onDismissRequest = { showRowMenu = false },
-            containerColor = WhatsAppSurfaceElevated,
-          ) {
-            DropdownMenuItem(
-              text = {
-                Text(
-                  text =
-                    if (isViewingArchived) {
-                      stringResource(R.string.chats_unarchive_action)
-                    } else {
-                      stringResource(R.string.chats_archive_action)
-                    },
-                  color = WhatsAppTextPrimary,
+          Spacer(modifier = Modifier.width(14.dp))
+          Column(modifier = Modifier.weight(1f)) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Text(
+                text = contact.displayName,
+                style =
+                  MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 16.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                  ),
+                color = WhatsAppTextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+              )
+              Spacer(modifier = Modifier.width(8.dp))
+              Text(
+                text = lastMessage.timestampLabel,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                color = WhatsAppTextSecondary,
+              )
+            }
+            Spacer(modifier = Modifier.height(3.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(
+                imageVector = LucideIcons.CheckCheck,
+                contentDescription = null,
+                tint = AccentPurpleBright,
+                modifier = Modifier.size(16.dp),
+              )
+              Spacer(modifier = Modifier.width(5.dp))
+              if (lastMessage.mediaLabel == "Voice") {
+                Icon(
+                  imageVector = LucideIcons.Mic,
+                  contentDescription = null,
+                  tint = WhatsAppTextSecondary,
+                  modifier = Modifier.size(14.dp),
                 )
-              },
-              onClick = {
-                showRowMenu = false
-                onToggleArchiveChat(contact)
-              },
-            )
+                Spacer(modifier = Modifier.width(4.dp))
+              }
+              Text(
+                text = stripChatMarkdown(lastMessage.text).replace('\n', ' '),
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.5.sp),
+                color = WhatsAppTextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+              )
+            }
           }
         }
       }

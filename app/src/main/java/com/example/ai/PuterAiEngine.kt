@@ -21,6 +21,7 @@ private const val TAG = "PuterAiEngine"
 data class PuterChatTurn(
   val role: String, // "system", "user", "assistant"
   val content: String,
+  val imageDataUrl: String? = null,
 )
 
 data class PuterModelOption(
@@ -28,6 +29,7 @@ data class PuterModelOption(
   val displayName: String,
   val description: String,
   val restDriver: String,
+  val supportsVision: Boolean = true,
 )
 
 object PuterModels {
@@ -38,31 +40,41 @@ object PuterModels {
       PuterModelOption(
         id = "gpt-4o-mini",
         displayName = "GPT-4o Mini",
-        description = "Fast, low-cost OpenAI model (Recommended)",
+        description = "Fast, low-cost OpenAI vision & chat model (Recommended)",
         restDriver = "openai-completion",
+        supportsVision = true,
       ),
       PuterModelOption(
         id = "gpt-5-nano",
         displayName = "GPT-5 Nano",
         description = "Ultra-lightweight model for minimal consumption",
         restDriver = "openai-completion",
+        supportsVision = true,
       ),
       PuterModelOption(
         id = "google/gemini-2.5-flash-lite",
         displayName = "Gemini 2.5 Flash Lite",
-        description = "Lightweight Google model via Puter",
+        description = "Lightweight Google multimodal model via Puter",
         restDriver = "openrouter",
+        supportsVision = true,
       ),
       PuterModelOption(
         id = "deepseek/deepseek-chat",
         displayName = "DeepSeek Chat",
-        description = "Efficient reasoning & conversational model",
+        description = "Efficient reasoning & conversational text model",
         restDriver = "deepseek",
+        supportsVision = false,
       ),
     )
 
   fun findById(modelId: String): PuterModelOption =
     availableModels.find { it.id == modelId } ?: availableModels.first()
+
+  fun resolveModelForTurns(modelId: String, turns: List<PuterChatTurn>): String {
+    val hasImages = turns.any { !it.imageDataUrl.isNullOrBlank() }
+    val selected = findById(modelId)
+    return if (hasImages && !selected.supportsVision) DEFAULT_MODEL_ID else selected.id
+  }
 }
 
 object PuterPreferences {
@@ -119,12 +131,23 @@ sealed interface PuterAiResult {
   data class Error(val message: String) : PuterAiResult
 }
 
+sealed interface PuterImageResult {
+  data class Success(val imageUrlOrDataUri: String) : PuterImageResult
+  data class AuthRequired(val message: String) : PuterImageResult
+  data class Error(val message: String) : PuterImageResult
+}
+
 interface PuterAiEngine {
   suspend fun generateReply(
     messages: List<PuterChatTurn>,
     modelId: String,
     authToken: String?,
   ): PuterAiResult
+
+  suspend fun generateImage(
+    prompt: String,
+    authToken: String?,
+  ): PuterImageResult = PuterImageResult.Error("Image generation is not configured.")
 }
 
 /**
@@ -144,6 +167,7 @@ class PuterWebBridgeController {
 
   private var evaluateJs: ((String) -> Unit)? = null
   private val pendingRequests = ConcurrentHashMap<String, CompletableDeferred<PuterAiResult>>()
+  private val pendingImageRequests = ConcurrentHashMap<String, CompletableDeferred<PuterImageResult>>()
 
   var onAuthStateUpdated: ((signedIn: Boolean, username: String?, token: String?) -> Unit)? = null
 
@@ -181,18 +205,29 @@ class PuterWebBridgeController {
 
   fun onChatError(requestId: String, errorMessage: String) {
     val deferred = pendingRequests.remove(requestId) ?: return
-    val lower = errorMessage.lowercase()
-    if (
-      lower.contains("auth") ||
-      lower.contains("sign in") ||
-      lower.contains("login") ||
-      lower.contains("401") ||
-      lower.contains("token") ||
-      lower.contains("unauthorized")
-    ) {
+    if (looksLikeAuthError(errorMessage)) {
       deferred.complete(PuterAiResult.AuthRequired(errorMessage))
     } else {
       deferred.complete(PuterAiResult.Error(errorMessage))
+    }
+  }
+
+  fun onImageResult(requestId: String, imageDataOrUrl: String) {
+    val deferred = pendingImageRequests.remove(requestId) ?: return
+    val cleaned = imageDataOrUrl.trim()
+    if (cleaned.isNotEmpty()) {
+      deferred.complete(PuterImageResult.Success(cleaned))
+    } else {
+      deferred.complete(PuterImageResult.Error("Puter AI returned an empty image."))
+    }
+  }
+
+  fun onImageError(requestId: String, errorMessage: String) {
+    val deferred = pendingImageRequests.remove(requestId) ?: return
+    if (looksLikeAuthError(errorMessage)) {
+      deferred.complete(PuterImageResult.AuthRequired(errorMessage))
+    } else {
+      deferred.complete(PuterImageResult.Error(errorMessage))
     }
   }
 
@@ -219,25 +254,13 @@ class PuterWebBridgeController {
     val deferred = CompletableDeferred<PuterAiResult>()
     pendingRequests[requestId] = deferred
 
-    val messagesArray =
-      JSONArray().apply {
-        messages.forEach { turn ->
-          put(
-            JSONObject().apply {
-              put("role", turn.role)
-              put("content", turn.content)
-            }
-          )
-        }
-      }
-
     val payloadJson =
       JSONObject()
         .apply {
           put("requestId", requestId)
           put("model", modelId)
           put("authToken", authToken.orEmpty())
-          put("messages", messagesArray)
+          put("messages", buildMessagesJsonArray(messages))
         }
         .toString()
 
@@ -253,6 +276,49 @@ class PuterWebBridgeController {
     }
     return result
   }
+
+  suspend fun generateImageViaWebBridge(
+    prompt: String,
+    authToken: String?,
+  ): PuterImageResult? {
+    val evaluator = evaluateJs ?: return null
+    if (!isPageReady) return null
+
+    val requestId = UUID.randomUUID().toString()
+    val deferred = CompletableDeferred<PuterImageResult>()
+    pendingImageRequests[requestId] = deferred
+
+    val payloadJson =
+      JSONObject()
+        .apply {
+          put("requestId", requestId)
+          put("prompt", prompt)
+          put("authToken", authToken.orEmpty())
+        }
+        .toString()
+
+    val escapedPayload = JSONObject.quote(payloadJson)
+    withContext(Dispatchers.Main) {
+      evaluator("window.chetchyPuterTxt2Img($escapedPayload);")
+    }
+
+    val result = withTimeoutOrNull(75_000L) { deferred.await() }
+    if (result == null) {
+      pendingImageRequests.remove(requestId)
+      return PuterImageResult.Error("Puter AI image generation timed out.")
+    }
+    return result
+  }
+
+  private fun looksLikeAuthError(errorMessage: String): Boolean {
+    val lower = errorMessage.lowercase()
+    return lower.contains("auth") ||
+      lower.contains("sign in") ||
+      lower.contains("login") ||
+      lower.contains("401") ||
+      lower.contains("token") ||
+      lower.contains("unauthorized")
+  }
 }
 
 class HybridPuterAiEngine(
@@ -265,6 +331,7 @@ class HybridPuterAiEngine(
     authToken: String?,
   ): PuterAiResult {
     val cleanToken = authToken?.trim().orEmpty()
+    val resolvedModel = PuterModels.resolveModelForTurns(modelId, messages)
 
     // 1. Prefer live Puter.js WebView bridge when available and ready
     if (bridgeController != null && bridgeController.isPageReady) {
@@ -273,7 +340,7 @@ class HybridPuterAiEngine(
           "Please sign in to your Puter account or add a Puter Auth Token to chat with AI personas."
         )
       }
-      val bridgeResult = bridgeController.chatViaWebBridge(messages, modelId, cleanToken)
+      val bridgeResult = bridgeController.chatViaWebBridge(messages, resolvedModel, cleanToken)
       if (bridgeResult != null) {
         return bridgeResult
       }
@@ -286,9 +353,80 @@ class HybridPuterAiEngine(
       )
     }
 
-    return callPuterDriversRest(messages = messages, modelId = modelId, authToken = cleanToken)
+    return callPuterDriversRest(messages = messages, modelId = resolvedModel, authToken = cleanToken)
+  }
+
+  override suspend fun generateImage(
+    prompt: String,
+    authToken: String?,
+  ): PuterImageResult {
+    val cleanPrompt = prompt.trim()
+    if (cleanPrompt.isEmpty()) {
+      return PuterImageResult.Error("Please enter a prompt describing the image.")
+    }
+    val cleanToken = authToken?.trim().orEmpty()
+
+    if (bridgeController != null && bridgeController.isPageReady) {
+      if (cleanToken.isEmpty() && !bridgeController.isJsSignedIn) {
+        return PuterImageResult.AuthRequired(
+          "Connect your free Puter account or add a Puter Auth Token to generate AI images."
+        )
+      }
+      val bridgeResult = bridgeController.generateImageViaWebBridge(cleanPrompt, cleanToken)
+      if (bridgeResult != null) {
+        return bridgeResult
+      }
+    }
+
+    if (cleanToken.isEmpty()) {
+      return PuterImageResult.AuthRequired(
+        "Connect your free Puter account in Settings -> Puter AI service (or paste a Puter Auth Token) to generate AI images."
+      )
+    }
+
+    return callPuterTxt2ImgRest(prompt = cleanPrompt, authToken = cleanToken)
   }
 }
+
+private fun buildMessagesJsonArray(messages: List<PuterChatTurn>): JSONArray =
+  JSONArray().apply {
+    messages.forEach { turn ->
+      put(
+        JSONObject().apply {
+          put("role", turn.role)
+          val img = turn.imageDataUrl?.trim()
+          if (!img.isNullOrEmpty()) {
+            put(
+              "content",
+              JSONArray().apply {
+                if (turn.content.isNotBlank()) {
+                  put(
+                    JSONObject().apply {
+                      put("type", "text")
+                      put("text", turn.content)
+                    }
+                  )
+                }
+                put(
+                  JSONObject().apply {
+                    put("type", "image_url")
+                    put(
+                      "image_url",
+                      JSONObject().apply {
+                        put("url", img)
+                      },
+                    )
+                  }
+                )
+              },
+            )
+          } else {
+            put("content", turn.content)
+          }
+        }
+      )
+    }
+  }
 
 suspend fun callPuterDriversRest(
   messages: List<PuterChatTurn>,
@@ -308,21 +446,9 @@ suspend fun callPuterDriversRest(
           put(
             "args",
             JSONObject().apply {
-              put("model", modelId)
+              put("model", modelOption.id)
               put("stream", false)
-              put(
-                "messages",
-                JSONArray().apply {
-                  messages.forEach { turn ->
-                    put(
-                      JSONObject().apply {
-                        put("role", turn.role)
-                        put("content", turn.content)
-                      }
-                    )
-                  }
-                },
-              )
+              put("messages", buildMessagesJsonArray(messages))
             },
           )
         }
@@ -371,6 +497,71 @@ suspend fun callPuterDriversRest(
     }
   }
 
+suspend fun callPuterTxt2ImgRest(
+  prompt: String,
+  authToken: String,
+): PuterImageResult =
+  withContext(Dispatchers.IO) {
+    var connection: HttpURLConnection? = null
+    try {
+      val payload =
+        JSONObject().apply {
+          put("interface", "puter-image-generation")
+          put("driver", "openai-image-generation")
+          put("test_mode", false)
+          put("method", "generate")
+          put(
+            "args",
+            JSONObject().apply {
+              put("prompt", prompt)
+            },
+          )
+        }
+
+      val url = URL("https://api.puter.com/drivers/call")
+      connection =
+        (url.openConnection() as HttpURLConnection).apply {
+          requestMethod = "POST"
+          connectTimeout = 15_000
+          readTimeout = 75_000
+          doOutput = true
+          setRequestProperty("Content-Type", "application/json")
+          setRequestProperty("Accept", "application/json")
+          setRequestProperty("Authorization", "Bearer $authToken")
+          setRequestProperty("Origin", "https://puter.com")
+          setRequestProperty("User-Agent", "Chetchy-Android")
+        }
+
+      OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { writer ->
+        writer.write(payload.toString())
+        writer.flush()
+      }
+
+      val code = connection.responseCode
+      val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+      val body = stream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } }.orEmpty()
+
+      if (code == 401 || code == 403) {
+        return@withContext PuterImageResult.AuthRequired(
+          "Puter session expired or unauthorized (HTTP $code). Please reconnect your Puter account."
+        )
+      }
+
+      if (code !in 200..299) {
+        return@withContext PuterImageResult.Error(
+          extractPuterErrorMessage(body) ?: "Puter image generator returned HTTP $code."
+        )
+      }
+
+      parsePuterImageResponse(body)
+    } catch (e: Exception) {
+      Log.e(TAG, "Puter txt2img REST request failed", e)
+      PuterImageResult.Error(e.localizedMessage ?: "Failed to generate image with Puter AI.")
+    } finally {
+      connection?.disconnect()
+    }
+  }
+
 fun parsePuterDriverResponse(rawJson: String): PuterAiResult {
   return try {
     val root = JSONObject(rawJson)
@@ -399,6 +590,60 @@ fun parsePuterDriverResponse(rawJson: String): PuterAiResult {
     Log.e(TAG, "Failed to parse Puter response", e)
     PuterAiResult.Error("Could not parse Puter AI response.")
   }
+}
+
+fun parsePuterImageResponse(rawJson: String): PuterImageResult {
+  return try {
+    val root = JSONObject(rawJson)
+    if (root.has("success") && !root.optBoolean("success", true)) {
+      val errMsg = extractPuterErrorMessage(rawJson) ?: "Puter image generation failed."
+      val lower = errMsg.lowercase()
+      return if (lower.contains("auth") || lower.contains("token") || lower.contains("unauthorized")) {
+        PuterImageResult.AuthRequired(errMsg)
+      } else {
+        PuterImageResult.Error(errMsg)
+      }
+    }
+
+    val resultObj = root.optJSONObject("result")
+    val extracted =
+      extractImageUrlOrDataUri(resultObj)
+        ?: extractImageUrlOrDataUri(root)
+        ?: root.optString("result").takeIf {
+          it.isNotBlank() && it != "null" && (it.startsWith("http") || it.startsWith("data:image/"))
+        }
+
+    if (!extracted.isNullOrBlank()) {
+      PuterImageResult.Success(extracted.trim())
+    } else {
+      PuterImageResult.Error("Puter AI returned an empty image.")
+    }
+  } catch (e: Exception) {
+    Log.e(TAG, "Failed to parse Puter image response", e)
+    PuterImageResult.Error("Could not parse Puter AI image response.")
+  }
+}
+
+private fun extractImageUrlOrDataUri(obj: JSONObject?): String? {
+  if (obj == null) return null
+
+  val directUrl =
+    obj.optString("url").takeIf { it.isNotBlank() && it != "null" }
+      ?: obj.optString("src").takeIf { it.isNotBlank() && it != "null" }
+      ?: obj.optString("data_url").takeIf { it.isNotBlank() && it != "null" }
+  if (directUrl != null) return directUrl
+
+  val b64 = obj.optString("b64_json").takeIf { it.isNotBlank() && it != "null" }
+  if (b64 != null) return "data:image/png;base64,$b64"
+
+  val dataArr = obj.optJSONArray("data")
+  if (dataArr != null && dataArr.length() > 0) {
+    val first = dataArr.optJSONObject(0)
+    val nested = extractImageUrlOrDataUri(first)
+    if (nested != null) return nested
+  }
+
+  return null
 }
 
 private fun extractContentText(obj: JSONObject?): String? {

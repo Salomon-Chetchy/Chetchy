@@ -14,10 +14,13 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.test.core.app.ApplicationProvider
+import android.net.Uri
 import com.example.ai.PuterAiEngine
 import com.example.ai.PuterAiResult
 import com.example.ai.PuterChatTurn
+import com.example.ai.PuterImageResult
 import com.example.ai.parsePuterDriverResponse
+import com.example.ai.parsePuterImageResponse
 import com.example.ui.ChatsScreen
 import com.example.ui.ChatsViewModel
 import com.example.ui.components.parseChatMarkdown
@@ -63,10 +66,10 @@ class ExampleRobolectricTest {
     composeTestRule.onNodeWithTag("more_options_button").assertIsDisplayed()
     composeTestRule.onNodeWithTag("new_chat_plus_button").assertIsDisplayed()
     composeTestRule.onNodeWithTag("chats_search_input").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("archived_row").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("archived_row").assertDoesNotExist()
 
     composeTestRule.onNodeWithText("Chetchy").assertIsDisplayed()
-    composeTestRule.onNodeWithText("Archived").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Archived").assertDoesNotExist()
     composeTestRule.onNodeWithText("Aria Coach").assertIsDisplayed()
     composeTestRule.onNodeWithText("Sage Mentor").assertIsDisplayed()
 
@@ -372,6 +375,53 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `parsePuterImageResponse handles url b64_json and auth errors`() {
+    val urlJson =
+      """
+      {
+        "success": true,
+        "result": {
+          "url": "https://cdn.puter.site/generated/neon_city.png"
+        }
+      }
+      """.trimIndent()
+    val urlResult = parsePuterImageResponse(urlJson)
+    assertTrue(urlResult is PuterImageResult.Success)
+    assertEquals(
+      "https://cdn.puter.site/generated/neon_city.png",
+      (urlResult as PuterImageResult.Success).imageUrlOrDataUri,
+    )
+
+    val b64Json =
+      """
+      {
+        "success": true,
+        "result": {
+          "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+        }
+      }
+      """.trimIndent()
+    val b64Result = parsePuterImageResponse(b64Json)
+    assertTrue(b64Result is PuterImageResult.Success)
+    assertEquals(
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ",
+      (b64Result as PuterImageResult.Success).imageUrlOrDataUri,
+    )
+
+    val authJson =
+      """
+      {
+        "success": false,
+        "error": {
+          "message": "Authentication required to run txt2img"
+        }
+      }
+      """.trimIndent()
+    val authResult = parsePuterImageResponse(authJson)
+    assertTrue(authResult is PuterImageResult.AuthRequired)
+  }
+
+  @Test
   fun `ai persona chat sends prompt through PuterAiEngine and renders reply`() {
     var capturedModel: String? = null
     var capturedTurns: List<PuterChatTurn> = emptyList()
@@ -574,5 +624,110 @@ class ExampleRobolectricTest {
     composeTestRule.waitForIdle()
 
     composeTestRule.onNodeWithText("Great job! Try 3 sets today:\n• Warm up").assertIsDisplayed()
+  }
+
+  @Test
+  fun `chat screen attach tools sheet generates AI image from prompt dialog`() {
+    var capturedPrompt: String? = null
+    val tinyPngDataUri =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    val fakePuterEngine =
+      object : PuterAiEngine {
+        override suspend fun generateReply(
+          messages: List<PuterChatTurn>,
+          modelId: String,
+          authToken: String?,
+        ): PuterAiResult = PuterAiResult.Success("ok")
+
+        override suspend fun generateImage(
+          prompt: String,
+          authToken: String?,
+        ): PuterImageResult {
+          capturedPrompt = prompt
+          return PuterImageResult.Success(tinyPngDataUri)
+        }
+      }
+
+    val vm = ChatsViewModel(puterAiEngine = fakePuterEngine)
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = vm)
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithText("Aria Coach").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    // Open AI & Media tools bottom sheet
+    composeTestRule.onNodeWithTag("chat_attach_plus_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("chat_generate_image_option").assertIsDisplayed().performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("generate_image_prompt_input").performTextInput("Neon runner at dawn")
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("confirm_generate_image_button").performClick()
+    composeTestRule.mainClock.advanceTimeBy(500L)
+    composeTestRule.waitForIdle()
+
+    assertEquals("Neon runner at dawn", capturedPrompt)
+    composeTestRule.onNodeWithTag("ai_generated_image_preview").assertIsDisplayed()
+    composeTestRule.onNodeWithText("AI Generated").assertIsDisplayed()
+  }
+
+  @Test
+  fun `pending photo stages with AI Identify chip and passes imageDataUrl on send`() {
+    var capturedImageDataUrl: String? = null
+    var capturedPrompt: String? = null
+    val fakePuterEngine =
+      object : PuterAiEngine {
+        override suspend fun generateReply(
+          messages: List<PuterChatTurn>,
+          modelId: String,
+          authToken: String?,
+        ): PuterAiResult {
+          val lastUser = messages.lastOrNull { it.role == "user" }
+          capturedImageDataUrl = lastUser?.imageDataUrl
+          capturedPrompt = lastUser?.content
+          return PuterAiResult.Success("That looks like a **running shoe**!")
+        }
+      }
+
+    val vm = ChatsViewModel(puterAiEngine = fakePuterEngine)
+    composeTestRule.setContent {
+      WhatsAppDarkTheme {
+        ChatsScreen(viewModel = vm)
+      }
+    }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithText("Aria Coach").performClick()
+    composeTestRule.mainClock.advanceTimeBy(400L)
+    composeTestRule.waitForIdle()
+
+    // Simulate user picking a photo while inside the active chat
+    vm.onPhotoPicked(Uri.parse("content://media/external/images/media/42"))
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("pending_photo_bar").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("toggle_photo_identify_chip").assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag("chat_message_input").performTextInput("What gear is this?")
+    composeTestRule.waitForIdle()
+
+    // Trigger send directly with test encoder to verify end-to-end multimodal payload
+    vm.sendMessage(imageEncoder = { "data:image/jpeg;base64,/9j/test" })
+    composeTestRule.mainClock.advanceTimeBy(500L)
+    composeTestRule.waitForIdle()
+
+    assertEquals("data:image/jpeg;base64,/9j/test", capturedImageDataUrl)
+    assertEquals("What gear is this?", capturedPrompt)
+    composeTestRule.onNodeWithTag("pending_photo_bar").assertDoesNotExist()
+    composeTestRule.onNodeWithText("That looks like a running shoe!").assertIsDisplayed()
   }
 }
